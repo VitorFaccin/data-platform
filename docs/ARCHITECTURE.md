@@ -28,6 +28,59 @@ business key that makes writes idempotent. Pydantic models are for small typed i
 DAG params, one API response envelope — never for millions of rows, where per-row object
 construction would dominate the runtime.
 
+## Module conventions
+
+**Imports at the top of the module (PEP 8), never inside functions** — enforced by ruff
+(`PLC0415`). The common Airflow advice is the opposite: import heavy libraries inside the
+task, because the dag-processor re-imports every DAG file on every parse. Measured in
+`apache/airflow:3.3.1-python3.13` (fresh process, best of five):
+
+| Import | Cost |
+|---|---|
+| `airflow.sdk` — unavoidable in a DAG file | ~935 ms |
+| `polars` | ~77 ms |
+| `deltalake` | ~26 ms |
+
+Top-level imports add ~0.1 s to a parse Airflow already makes ~1 s long. That buys a
+module whose dependencies are readable in one place and a linter that can check them. If
+a future dependency costs seconds (a large ML framework), the trade-off is re-measured.
+
+What stays banned at module level is **work**: network or disk I/O, `Variable.get`,
+database lookups, computation. Those run on every parse, every ~30 seconds, forever.
+
+**Task callables are module-level functions**, decorated with `@task`; the `@dag`
+function only wires them (`ingest_month.expand(target=plan_months())`). The DAG reads as
+a list of steps followed by a ten-line dependency graph, instead of a function nesting
+everything.
+
+**Docstrings carry the reasoning; comments are rare.** Every function has a Google
+docstring with typed `Args` and `Returns`, and the *why* of a non-obvious rule goes in
+its first paragraph. An inline comment is reserved for a reason that cannot live in a
+docstring.
+
+## Configuration: constants, config and secrets
+
+Three kinds of value, three homes. The test is two questions: *does it change between
+environments?* and *does it grant access to anything?*
+
+| Kind | Changes per environment? | Grants access? | Home | Examples |
+|---|---|---|---|---|
+| **Constant** | no | no | code, reviewed with the logic that depends on it | `SOURCE_URL` of a public dataset, file layouts, window sizes |
+| **Config** | yes | no | environment variables (compose `.env` locally, deployment config in the cloud) | `DATA_PLATFORM_SINK`, `GCP_PROJECT_ID`, bucket names |
+| **Secret** | yes | **yes** | never in code or git: `.env` / `secrets/` locally, Secret Manager in the cloud | service-account key, webhook URL (embeds a token), API tokens, DB passwords |
+
+A public source URL is a constant, not a secret: anyone can download from it, and it is
+coupled to the parser — a new URL almost always means a new layout, which must go
+through code review and tests together. A bucket name or project id is config, not a
+secret: knowing it grants nothing without credentials.
+
+**In the cloud**, secrets move to GCP Secret Manager through Airflow's secrets backend
+(`CloudSecretManagerBackend`): code asks Airflow for a Connection or Variable, and the
+backend resolves it from Secret Manager instead of the metadata database. Locally the
+same names resolve from `AIRFLOW_CONN_*` / `AIRFLOW_VAR_*` environment variables, so the
+code does not change between the two. Credentials for GCP itself disappear entirely in
+the cloud: workloads run as an attached service account (Workload Identity), no key file.
+
 ## The layers of the lakehouse — what each one promises
 
 | Layer | Promise | Written as |

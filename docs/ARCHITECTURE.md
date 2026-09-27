@@ -28,6 +28,20 @@ business key that makes writes idempotent. Pydantic models are for small typed i
 DAG params, one API response envelope — never for millions of rows, where per-row object
 construction would dominate the runtime.
 
+## Naming, and one DAG per layer
+
+A name tells where the DAG sits without opening it: folder `dags/<domain>/<layer>_<dataset>/`,
+`dag_id` `<layer>_<domain>_<dataset>`, tables at `<layer>/<domain>/<dataset>`. For example
+`dags/cvm/bronze_fund_daily/` defines `bronze_cvm_fund_daily`, which writes
+`bronze/cvm/fund_daily`. Datasets get technical English names; a source's own name (CVM
+calls this one "Informe Diário") is recorded in the DAG README for whoever searches the
+source.
+
+The layer prefix is a promise that **a DAG writes exactly one layer**. Silver is its own
+DAG, scheduled by the bronze Asset; gold is scheduled by the silver Assets. Each DAG
+stays small, fails and retries on its own, and the hand-offs between layers are visible
+as Assets in the UI instead of hidden inside one long task chain.
+
 ## Module conventions
 
 **Imports at the top of the module (PEP 8), never inside functions** — enforced by ruff

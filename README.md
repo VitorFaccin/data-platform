@@ -154,7 +154,7 @@ Changed `requirements.txt`? Rebuild: `docker compose up --build`.
 Airflow UI at http://localhost:8080 (no login — SimpleAuthManager, local only). Landing
 files and Delta tables live in the `warehouse` Docker volume, mounted at
 `/opt/airflow/warehouse` — peek with
-`docker compose exec airflow-scheduler python -c "import polars as pl; print(pl.read_delta('/opt/airflow/warehouse/bronze/cvm/informe_diario'))"`. Switching `DATA_PLATFORM_SINK=gcp` in `.env` routes the
+`docker compose exec airflow-scheduler python -c "import polars as pl; print(pl.read_delta('/opt/airflow/warehouse/bronze/cvm/fund_daily'))"`. Switching `DATA_PLATFORM_SINK=gcp` in `.env` routes the
 same DAGs to GCS + BigQuery: the buckets must exist ([`infra/`](infra/README.md)) and a
 service-account key goes in [`secrets/`](secrets/README.md). Failure alerts go to the
 Google Chat space in `GOOGLE_CHAT_WEBHOOK_URL`; left empty, they become log warnings.

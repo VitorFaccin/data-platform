@@ -1,0 +1,5 @@
+# Test-time dependencies. Airflow itself is installed in CI with the official
+# constraints file (see .github/workflows/ci.yml) so the resolved set matches the
+# apache/airflow:3.3.1 image instead of whatever pip feels like today.
+# Runtime pins shared with requirements.txt are repeated here with the SAME version.
+pytest==8.3.4

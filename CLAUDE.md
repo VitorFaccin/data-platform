@@ -49,6 +49,12 @@ tables under `warehouse/`); `gcp` routes the same DAGs to GCS + BigQuery declare
 - **`.airflowignore` is glob-syntax** (set explicitly in compose) and must list any new
   non-DAG module pattern.
 - Cross-DAG dependencies use **Assets**, not cron offsets and not sensors.
+- **Every task alerts on failure**: each DAG sets
+  `default_args={"on_failure_callback": GoogleChatNotifier()}` (`from
+  alerting.google_chat import GoogleChatNotifier`). The integrity gate enforces it.
+- **Credentials never enter git**: keys live in `secrets/` (gitignored, mounted
+  read-only); the webhook URL lives in `.env`. Never log the webhook URL — it embeds a
+  key and token.
 
 ## Conventions
 
@@ -82,4 +88,5 @@ tables under `warehouse/`); `gcp` routes the same DAGs to GCS + BigQuery declare
    isolation, params, traps, consumers).
 3. New non-DAG files match an `.airflowignore` pattern.
 4. `docs/DATA_CONTRACT.md` lists any table the change publishes.
-5. `docker compose up` + trigger still works for the local sink.
+5. Every task has the failure alert (the integrity gate says so).
+6. `docker compose up` + trigger still works for the local sink.

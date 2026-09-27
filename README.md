@@ -129,9 +129,12 @@ they cross in gold instead of sitting side by side.
 ├── dags/
 │   └── .airflowignore            # keeps the processor off core/, adapters, READMEs
 ├── include/                      # shared, business-agnostic helpers (admission rules inside)
-├── plugins/                      # custom operators/hooks — empty until one is earned
+├── plugins/
+│   └── alerting/                 # GoogleChatNotifier — failure alerts, one thread per run
+├── secrets/                      # local credentials, gitignored (service-account key)
 ├── tests/
-│   └── dags/test_dag_integrity.py     # every DAG parses + house conventions hold
+│   ├── dags/test_dag_integrity.py     # every DAG parses + house conventions hold
+│   └── plugins/                       # the notifier's behaviour, including its failures
 ├── infra/                        # the GCP footprint as Terraform (validated in CI)
 ├── docs/                         # ARCHITECTURE.md · DATA_CONTRACT.md
 ├── warehouse/                    # local lakehouse (gitignored): landing + Delta tables
@@ -151,7 +154,22 @@ Changed `requirements.txt`? Rebuild: `docker compose up --build`.
 
 Airflow UI at http://localhost:8080 (no login — SimpleAuthManager, local only). Delta
 tables land under `warehouse/`. Switching `DATA_PLATFORM_SINK=gcp` in `.env` routes the
-same DAGs to GCS + BigQuery — after [`infra/`](infra/README.md) is applied.
+same DAGs to GCS + BigQuery: the buckets must exist ([`infra/`](infra/README.md)) and a
+service-account key goes in [`secrets/`](secrets/README.md). Failure alerts go to the
+Google Chat space in `GOOGLE_CHAT_WEBHOOK_URL`; left empty, they become log warnings.
+
+## Alerting
+
+Every task carries `on_failure_callback=GoogleChatNotifier()` (set once per DAG through
+`default_args`), and the integrity gate fails the build if any task lacks it.
+
+- **Fires after the last retry**, never on a retried blip — an alert that cries wolf on
+  every transient 503 is an alert people mute.
+- **One thread per DAG run**: a backfill that fails twelve mapped months is one thread
+  with twelve replies, not twelve messages burying the space.
+- **The alert can never break the run**: no webhook configured degrades to a log warning,
+  and a failed webhook call is logged and swallowed — an alerting outage must not replace
+  the task's real exception.
 
 ## Tests
 
@@ -164,7 +182,10 @@ Tiers, each answering a different question:
 
 - **integrity** (`tests/dags/`) — does every DAG *load*? DagBag parses the folder exactly
   as the processor will, then pins the house conventions: every DAG file registers a DAG,
-  file named after its folder, README present, `catchup=False` everywhere.
+  file named after its folder, README present, every task alerts on failure,
+  `catchup=False` everywhere.
+- **plugins** (`tests/plugins/`) — do the shared extensions behave, including when their
+  own dependencies fail? The notifier is tested with no webhook and with a dead one.
 - **contract** (`tests/<domain>/<dag>/`, per DAG) — are parsing and transforms *correct*?
   Pure functions against hand-typed fixtures; raises are asserted as eagerly as successes.
 - **idempotency** (per DAG) — does running twice equal running once? The write path runs
@@ -174,7 +195,7 @@ Tiers, each answering a different question:
 
 | Job | Checks |
 |---|---|
-| **lint** (no Airflow, <1 min) | `ruff` · `yamllint` · `terraform fmt`/`validate` (offline) · line endings are LF |
+| **lint** (no Airflow, <1 min) | `ruff` · `yamllint` · `terraform fmt`/`validate` (offline) · no private keys in tracked files · line endings are LF |
 | **test** | Airflow 3.3.1 installed with the **official constraints file**, DagBag integrity, per-DAG suites |
 | **image** | `docker build` of the exact image compose runs — the one failure pip-on-a-host can't reproduce is a requirements pin conflicting with the image's frozen set |
 

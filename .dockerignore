@@ -1,0 +1,5 @@
+# Whitelist: the Dockerfile COPYies only requirements.txt, so nothing else belongs in
+# the build context. Without this, every `docker compose up --build` ships the whole
+# repo (git objects, warehouse parquet, caches) to the daemon for no reason.
+*
+!requirements.txt

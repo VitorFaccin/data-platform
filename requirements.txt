@@ -1,0 +1,3 @@
+# Runtime dependencies, baked into the image at build time (Dockerfile, README decision 12).
+# Empty on purpose in the platform foundation: a dependency arrives with the first DAG
+# that imports it (polars and deltalake come with the first domain), pinned exactly.

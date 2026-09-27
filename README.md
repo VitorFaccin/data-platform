@@ -47,13 +47,20 @@ Airflow orchestrates every arrow and computes none of them in the scheduler. DAG
 off to each other through **Assets** — a downstream DAG runs when its input table was
 actually written, not at a cron offset.
 
-The same code runs in two places, switched by one variable:
+The same code runs in two modes, switched by **one variable in `.env`**,
+`DATA_PLATFORM_MODE`, and read by exactly one module
+([`include/runtime.py`](include/runtime.py)) — no DAG branches on it:
 
-| | `DATA_PLATFORM_SINK=local` | `DATA_PLATFORM_SINK=gcp` |
+| | `local` (default) | `cloud` |
 |---|---|---|
-| Landing + Delta tables | the `warehouse` Docker volume | GCS buckets |
+| Landing files | the `warehouse` Docker volume | the landing bucket (GCS) |
+| Delta tables (bronze/silver/gold, control) | the `warehouse` Docker volume | the lakehouse bucket (GCS) |
+| Secrets (e.g. the alert webhook) | `.env` | Secret Manager |
 | Serving | DuckDB over the Delta tables | BigQuery (gold only) |
-| Credentials | none | a least-privilege service account ([`infra/iam.tf`](infra/iam.tf)) |
+| Credentials | none | Application Default Credentials in [`secrets/`](secrets/README.md) |
+
+Cloud mode fails on its first task — with the name of what is missing — if a bucket
+variable is unset, instead of writing somewhere nobody expects.
 
 ---
 
@@ -91,7 +98,7 @@ core of the Python-first decision below.
 | 7 | **BigQuery is the serving edge, not the lake** | Bronze and silver live as Delta tables in object storage; only gold is published to BigQuery, where analysts and the agent layer query it. Storage stays cheap and engine-neutral; the warehouse holds what people actually read. |
 | 8 | **Polars on one node; Spark only when measured** | These datasets fit one machine, where Polars is faster and operationally simpler. Spark earns a place only where a benchmark shows single-node processing breaking — the planned candidate is the 20-year CVM backfill, run on Dataproc Serverless. A Spark cluster in compose would be résumé-driven engineering: "distributed" across one laptop. |
 | 9 | **Asset (data-aware) scheduling between DAGs** | A consumer runs when its input landed, not at a cron offset that breaks the day ingestion is 20 minutes late. Caveat stated where it matters: an Asset event signals producer *success*, not data *quality*; quality gates remain tasks. |
-| 10 | **Imports at the top (PEP 8); work only inside tasks** | Every import sits at the top of its module, enforced by ruff (`PLC0415`). Measured in the image: `polars` + `deltalake` add ~0.1 s to a parse that `airflow.sdk` alone makes ~0.9 s — readability wins over lazy imports. What stays banned at module level is *work*: I/O, `Variable.get`, computation — the dag-processor would run it on every parse. Details in [ARCHITECTURE.md](docs/ARCHITECTURE.md#module-conventions). |
+| 10 | **Imports at the top (PEP 8); work only inside tasks** | Every import sits at the top of its module, enforced by ruff (`PLC0415`). Measured in the image: `polars`, `deltalake` and the Google clients add ~0.2 s to a parse that `airflow.sdk` alone makes ~0.9 s — readability wins over lazy imports. What stays banned at module level is *work*: I/O, `Variable.get`, computation — the dag-processor would run it on every parse. Details in [ARCHITECTURE.md](docs/ARCHITECTURE.md#module-conventions). |
 | 11 | **LocalExecutor compose, not the official Celery stack** | A single-node platform gains nothing from Redis + distributed workers locally. Production would move heavy tasks off the worker (KubernetesPodOperator or Cloud Run Jobs) — the task code does not change, only where it runs. |
 | 12 | **Dependencies are baked into the image at build time** | Compose runs `FROM apache/airflow:3.3.1-python3.13` + `pip install -r requirements.txt` ([`Dockerfile`](Dockerfile)) — the shape a production image has. `_PIP_ADDITIONAL_REQUIREMENTS` was rejected: it re-resolves the tree on every container start — slow, and it drifts from the pin. |
 
@@ -154,10 +161,13 @@ Changed `requirements.txt`? Rebuild: `docker compose up --build`.
 Airflow UI at http://localhost:8080 (no login — SimpleAuthManager, local only). Landing
 files and Delta tables live in the `warehouse` Docker volume, mounted at
 `/opt/airflow/warehouse` — peek with
-`docker compose exec airflow-scheduler python -c "import polars as pl; print(pl.read_delta('/opt/airflow/warehouse/bronze/cvm/informe_diario'))"`. Switching `DATA_PLATFORM_SINK=gcp` in `.env` routes the
-same DAGs to GCS + BigQuery: the buckets must exist ([`infra/`](infra/README.md)) and a
-service-account key goes in [`secrets/`](secrets/README.md). Failure alerts go to the
-Google Chat space in `GOOGLE_CHAT_WEBHOOK_URL`; left empty, they become log warnings.
+`docker compose exec airflow-scheduler python -c "import polars as pl; print(pl.read_delta('/opt/airflow/warehouse/bronze/cvm/fund_daily'))"`.
+
+To run in cloud mode: create the buckets and the webhook secret ([`infra/`](infra/README.md)),
+generate credentials into [`secrets/`](secrets/README.md), then set
+`DATA_PLATFORM_MODE=cloud` plus the project and bucket variables in `.env` and restart.
+Failure alerts go to the Google Chat webhook — from `.env` locally, from Secret Manager in
+cloud mode; with no webhook, they become log warnings.
 
 ## Alerting
 

@@ -1,3 +1,8 @@
 # Runtime dependencies, baked into the image at build time (Dockerfile, README decision 12).
-# Empty on purpose in the platform foundation: a dependency arrives with the first DAG
-# that imports it (polars and deltalake come with the first domain), pinned exactly.
+# Pinned exactly; a bump is its own reviewed change, with the test suite as the net.
+polars==1.44.2     # DataFrame engine for every transform (README decision 3)
+deltalake==1.6.6   # Delta Lake tables via delta-rs: no JVM (README decision 4)
+# Cloud mode (include/runtime.py). Already in the base image via the Google provider;
+# pinned to the image's exact versions so the dependency is explicit, not accidental.
+google-cloud-storage==3.13.1
+google-cloud-secret-manager==2.30.0

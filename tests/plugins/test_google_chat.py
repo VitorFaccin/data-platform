@@ -11,6 +11,17 @@ import pytest
 from alerting import google_chat
 
 WEBHOOK = "https://chat.googleapis.com/v1/spaces/AAA/messages?key=k&token=t"
+WEBHOOK_ENV = "GOOGLE_CHAT_WEBHOOK_URL"
+
+
+@pytest.fixture(autouse=True)
+def _local_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Run every test in local mode, where the secret is an environment variable.
+
+    Args:
+        monkeypatch (pytest.MonkeyPatch): Pytest's environment patcher.
+    """
+    monkeypatch.delenv("DATA_PLATFORM_MODE", raising=False)
 
 
 def _context(map_index: int = -1, exception: Exception | None = None) -> dict:
@@ -24,19 +35,19 @@ def _context(map_index: int = -1, exception: Exception | None = None) -> dict:
         dict: Context with ``ti`` and ``exception``, as the callback receives it.
     """
     ti = SimpleNamespace(
-        dag_id="cvm_informe_diario",
+        dag_id="bronze_cvm_fund_daily",
         task_id="ingest_month",
         run_id="manual__2026-09-27T12:00:00+00:00",
         try_number=3,
         map_index=map_index,
-        log_url="http://localhost:8080/dags/cvm_informe_diario/runs/x/tasks/ingest_month",
+        log_url="http://localhost:8080/dags/bronze_cvm_fund_daily/runs/x/tasks/ingest_month",
     )
     return {"ti": ti, "exception": exception}
 
 
 def test_message_names_the_task_the_run_and_the_error() -> None:
     text = google_chat.build_failure_message(_context(exception=ValueError("bad layout")))["text"]
-    assert "`cvm_informe_diario` › `ingest_month`" in text
+    assert "`bronze_cvm_fund_daily` › `ingest_month`" in text
     assert "attempt 3" in text
     assert "ValueError: bad layout" in text
     assert "|Open the log>" in text
@@ -63,7 +74,7 @@ def test_thread_parameters_keep_the_webhook_credentials() -> None:
 
 
 def test_without_a_webhook_nothing_is_sent(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv(google_chat.WEBHOOK_ENV_VAR, raising=False)
+    monkeypatch.delenv(WEBHOOK_ENV, raising=False)
 
     def _must_not_be_called(*_: object, **__: object) -> None:
         raise AssertionError("urlopen called without a webhook configured")
@@ -73,7 +84,7 @@ def test_without_a_webhook_nothing_is_sent(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def test_posts_the_message_to_the_threaded_url(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv(google_chat.WEBHOOK_ENV_VAR, WEBHOOK)
+    monkeypatch.setenv(WEBHOOK_ENV, WEBHOOK)
     sent = {}
 
     class _Response:
@@ -90,16 +101,26 @@ def test_posts_the_message_to_the_threaded_url(monkeypatch: pytest.MonkeyPatch) 
 
     monkeypatch.setattr(google_chat.urllib.request, "urlopen", _fake_urlopen)
     google_chat.GoogleChatNotifier().notify(_context())
-    assert "threadKey=cvm_informe_diario" in sent["url"]
+    assert "threadKey=bronze_cvm_fund_daily" in sent["url"]
     assert "Task failed" in sent["body"]["text"]
 
 
 def test_a_failing_webhook_never_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     """An alerting outage must not replace the task's real exception."""
-    monkeypatch.setenv(google_chat.WEBHOOK_ENV_VAR, WEBHOOK)
+    monkeypatch.setenv(WEBHOOK_ENV, WEBHOOK)
 
     def _boom(*_: object, **__: object) -> None:
         raise OSError("network down")
 
     monkeypatch.setattr(google_chat.urllib.request, "urlopen", _boom)
+    google_chat.GoogleChatNotifier().notify(_context())
+
+
+def test_an_unreadable_secret_never_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Secret Manager down or permission denied: log it, keep the task's own error."""
+
+    def _denied(_: str) -> None:
+        raise PermissionError("secretmanager.versions.access denied")
+
+    monkeypatch.setattr(google_chat.runtime, "get_secret", _denied)
     google_chat.GoogleChatNotifier().notify(_context())

@@ -23,9 +23,9 @@ adds its rows here.
 
 | Domain | Gold table (planned) | Grain | Intended consumer |
 |---|---|---|---|
-| `cvm` | `fato_informe_diario` | one fund class × one day | analysis; `warehouse_analyst` agent |
-| `cvm` | `dim_fundo` (SCD2) | one fund × one validity interval | same |
-| `cnpj` | `dim_empresa` | one company (CNPJ root) | conformed across `cvm` and `cnpj`; `entity_resolver` agent |
-| `bcb` | `serie_diaria` | one series × one day | return benchmarking (CDI/Selic) |
+| `cvm` | `fact_fund_daily` | one fund class × one day | analysis; `warehouse_analyst` agent |
+| `cvm` | `dim_fund` (SCD2) | one fund × one validity interval | same |
+| `cnpj` | `dim_company` | one company (CNPJ root) | conformed across `cvm` and `cnpj`; `entity_resolver` agent |
+| `bcb` | `series_daily` | one series × one day | return benchmarking (CDI/Selic) |
 
 Grains are provisional until each producer's README pins them.

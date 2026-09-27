@@ -7,9 +7,9 @@ Guidance for coding agents. Same content whatever the agent; `AGENTS.md` points 
 Batch data platform on Apache Airflow 3.3.1: a **Python-first lakehouse**. Brazilian
 public data (CVM funds, CNPJ registry, BCB series) lands as **Delta Lake** tables in
 bronze/silver/gold, transformed by **Polars**, with gold served through BigQuery.
-Local-first: `docker compose up` runs everything with `DATA_PLATFORM_SINK=local` (Delta
-tables in the `warehouse` Docker volume); `gcp` routes the same DAGs to GCS + BigQuery declared in
-`infra/` (Terraform, not yet applied).
+Local-first: `docker compose up` runs everything with `DATA_PLATFORM_MODE=local` (landing
+and Delta tables in the `warehouse` Docker volume, secrets from `.env`); `cloud` routes the
+same DAGs to GCS + Secret Manager declared in `infra/` (Terraform, not yet applied).
 
 ## Reading order
 
@@ -24,6 +24,12 @@ tables in the `warehouse` Docker volume); `gcp` routes the same DAGs to GCS + Bi
 - **One DAG = one folder** under `dags/<domain>/<dag_name>/`; the DAG file and the test
   file are NAMED AFTER THE FOLDER (`<dag_name>/<dag_name>.py`,
   `tests/<domain>/<dag_name>/test_<dag_name>.py`). Never `dag.py`, never `main.py`.
+- **Names say layer, domain and dataset**: folder `dags/<domain>/<layer>_<dataset>/`,
+  `dag_id` `<layer>_<domain>_<dataset>` (`dags/cvm/bronze_fund_daily/` →
+  `bronze_cvm_fund_daily`), tables `<layer>/<domain>/<dataset>`. Datasets get technical
+  English names; the source's own name (e.g. CVM's "Informe Diário") goes in the README.
+- **One DAG per layer**: a DAG writes exactly one layer; the next layer is its own DAG,
+  scheduled by the previous layer's Asset.
 - **`core/` holds exactly `schema.py` and `domain.py`, and stays pure**: no airflow, no
   google.*, no requests, no deltalake, no disk. What is not a contract or a rule is I/O →
   `adapters.py`. No `utils.py`, no `helpers.py`, no subpackages in `core/`.
@@ -38,7 +44,7 @@ tables in the `warehouse` Docker volume); `gcp` routes the same DAGs to GCS + Bi
   Pydantic only for small typed inputs (params, API envelopes), never per row.
 - **Imports at the top of every module** (PEP 8, enforced by ruff `PLC0415`), never
   inside functions. No top-level *work* in DAG files (I/O, `Variable.get`, computation):
-  the processor re-parses continuously. Measured cost of the imports: ~0.1 s per parse.
+  the processor re-parses continuously. Measured cost of the imports: ~0.2 s per parse.
 - **Task callables are module-level functions**; the `@dag` function only wires them.
 - **Unexpected input format RAISES** (`UnexpectedLayoutError`) — never a permissive cast.
 - **Imports are fully qualified from the dags root** (`from cvm.<dag_name>.core import
@@ -46,6 +52,9 @@ tables in the `warehouse` Docker volume); `gcp` routes the same DAGs to GCS + Bi
 - **Terraform owns containers (buckets, datasets, IAM, budget); the pipeline owns
   tables** (schema in `core/schema.py`, created by the first Delta write).
 - **BigQuery serves gold only**; bronze and silver stay in the lake.
+- **The local/cloud switch is `DATA_PLATFORM_MODE`, read ONLY by `include/runtime.py`.**
+  DAGs ask it for locations (`runtime.lakehouse()`) and secrets (`runtime.get_secret`);
+  never read the mode, bucket variables or secret env vars directly, never hardcode a path.
 - **Spark only with a benchmark behind it**, and serverless (Dataproc). No Spark cluster
   in compose, no Databricks.
 - **`.airflowignore` is glob-syntax** (set explicitly in compose) and must list any new
@@ -70,8 +79,8 @@ tables in the `warehouse` Docker volume); `gcp` routes the same DAGs to GCS + Bi
   fixtures next to the test. Fixtures never contain real personal data.
 - Comments explain WHY, not what. A future reader must find the reasoning, not narration.
 - Conventional commits (`feat:`, `fix:`, `test:`, `docs:`, `ci:`, `infra:`).
-- English everywhere in code and docs. Gold column names may follow the source's
-  Portuguese vocabulary (`dim_fundo`, `fato_informe_diario`) — they are domain terms.
+- English everywhere in code, docs, table names and new columns. Columns copied from a
+  source keep the source's names (`cnpj_fundo_classe`, `vl_quota`).
 - Work lands through branches and pull requests, never direct pushes to `main`.
 
 ## Gotchas
@@ -97,4 +106,4 @@ tables in the `warehouse` Docker volume); `gcp` routes the same DAGs to GCS + Bi
 3. New non-DAG files match an `.airflowignore` pattern.
 4. `docs/DATA_CONTRACT.md` lists any table the change publishes.
 5. Every task has the failure alert (the integrity gate says so).
-6. `docker compose up` + trigger still works for the local sink.
+6. `docker compose up` + trigger still works in local mode.

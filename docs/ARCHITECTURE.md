@@ -28,6 +28,20 @@ business key that makes writes idempotent. Pydantic models are for small typed i
 DAG params, one API response envelope — never for millions of rows, where per-row object
 construction would dominate the runtime.
 
+## Naming, and one DAG per layer
+
+A name tells where the DAG sits without opening it: folder `dags/<domain>/<layer>_<dataset>/`,
+`dag_id` `<layer>_<domain>_<dataset>`, tables at `<layer>/<domain>/<dataset>`. For example
+`dags/cvm/bronze_fund_daily/` defines `bronze_cvm_fund_daily`, which writes
+`bronze/cvm/fund_daily`. Datasets get technical English names; a source's own name (CVM
+calls this one "Informe Diário") is recorded in the DAG README for whoever searches the
+source.
+
+The layer prefix is a promise that **a DAG writes exactly one layer**. Silver is its own
+DAG, scheduled by the bronze Asset; gold is scheduled by the silver Assets. Each DAG
+stays small, fails and retries on its own, and the hand-offs between layers are visible
+as Assets in the UI instead of hidden inside one long task chain.
+
 ## Module conventions
 
 **Imports at the top of the module (PEP 8), never inside functions** — enforced by ruff
@@ -41,7 +55,8 @@ task, because the dag-processor re-imports every DAG file on every parse. Measur
 | `polars` | ~77 ms |
 | `deltalake` | ~26 ms |
 
-Top-level imports add ~0.1 s to a parse Airflow already makes ~1 s long. That buys a
+Top-level imports — polars, deltalake and the Google clients together — add ~0.2 s to a
+parse Airflow already makes ~1 s long. That buys a
 module whose dependencies are readable in one place and a linter that can check them. If
 a future dependency costs seconds (a large ML framework), the trade-off is re-measured.
 
@@ -66,7 +81,7 @@ environments?* and *does it grant access to anything?*
 | Kind | Changes per environment? | Grants access? | Home | Examples |
 |---|---|---|---|---|
 | **Constant** | no | no | code, reviewed with the logic that depends on it | `SOURCE_URL` of a public dataset, file layouts, window sizes |
-| **Config** | yes | no | environment variables (compose `.env` locally, deployment config in the cloud) | `DATA_PLATFORM_SINK`, `GCP_PROJECT_ID`, bucket names |
+| **Config** | yes | no | environment variables (compose `.env` locally, deployment config in the cloud) | `DATA_PLATFORM_MODE`, `GCP_PROJECT_ID`, bucket names |
 | **Secret** | yes | **yes** | never in code or git: `.env` / `secrets/` locally, Secret Manager in the cloud | service-account key, webhook URL (embeds a token), API tokens, DB passwords |
 
 A public source URL is a constant, not a secret: anyone can download from it, and it is
@@ -74,12 +89,24 @@ coupled to the parser — a new URL almost always means a new layout, which must
 through code review and tests together. A bucket name or project id is config, not a
 secret: knowing it grants nothing without credentials.
 
-**In the cloud**, secrets move to GCP Secret Manager through Airflow's secrets backend
-(`CloudSecretManagerBackend`): code asks Airflow for a Connection or Variable, and the
-backend resolves it from Secret Manager instead of the metadata database. Locally the
-same names resolve from `AIRFLOW_CONN_*` / `AIRFLOW_VAR_*` environment variables, so the
-code does not change between the two. Credentials for GCP itself disappear entirely in
-the cloud: workloads run as an attached service account (Workload Identity), no key file.
+**One switch for storage and secrets.** `DATA_PLATFORM_MODE` (`local` | `cloud`) is read
+by exactly one module, [`include/runtime.py`](../include/runtime.py). DAGs ask it for
+locations (`runtime.lakehouse()` → local directories or the two GCS buckets) and for
+secrets (`runtime.get_secret("google_chat_webhook_url")` → `.env` locally, the Secret
+Manager secret `google-chat-webhook-url` in cloud mode). No DAG branches on the mode, so
+the task code is identical in both.
+
+Airflow's own secrets backend (`CloudSecretManagerBackend`) was the alternative: code asks
+Airflow for a Variable and the backend fetches it from Secret Manager. It was not chosen
+because the runtime here is a local Airflow writing to the cloud: the backend is Airflow
+configuration, a second switch next to the storage one, and it would route every Variable
+lookup through GCP even for values that are not secrets. When Airflow itself moves to GCP
+(Composer, GKE), the backend becomes the natural fit — and `get_secret` is the one
+function that would change.
+
+**Credentials** for GCP come from Application Default Credentials: locally a file in
+`secrets/` (see its README); in the cloud, workloads run as an attached service account
+(Workload Identity) and no key exists at all.
 
 ## The layers of the lakehouse — what each one promises
 

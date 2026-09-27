@@ -174,9 +174,11 @@ Every task carries `on_failure_callback=GoogleChatNotifier()` (set once per DAG 
 
 ## Tests
 
+Tests need Airflow installed with its constraints (CI does this). Locally, run them in
+the same image the platform uses:
+
 ```bash
-pip install -r tests/requirements.txt
-pytest
+docker run --rm -v "$PWD:/repo" -w /repo --entrypoint bash apache/airflow:3.3.1-python3.13   -c "pip install -q -r tests/requirements.txt && pytest -p no:cacheprovider"
 ```
 
 Tiers, each answering a different question:

@@ -13,6 +13,7 @@ resource "google_project_service" "required" {
     "billingbudgets.googleapis.com",       # budget alert (budget.tf) — never on by default
     "iam.googleapis.com",                  # service account (iam.tf)
     "cloudresourcemanager.googleapis.com", # project-level IAM binding (iam.tf)
+    "secretmanager.googleapis.com",        # the webhook secret (secrets.tf)
   ])
 
   service = each.value

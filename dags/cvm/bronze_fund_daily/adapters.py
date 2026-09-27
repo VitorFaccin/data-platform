@@ -1,20 +1,26 @@
-"""Every side effect of the bronze_cvm_fund_daily DAG: HTTP, landing and Delta tables."""
+"""Every side effect of the bronze_cvm_fund_daily DAG: HTTP, landing and Delta tables.
+
+Locations come from ``include.runtime.Lakehouse``, so the same functions write to the
+local volume or to GCS depending on ``DATA_PLATFORM_MODE``.
+"""
 
 from __future__ import annotations
 
 import datetime as dt
 import email.utils
-import os
 import urllib.error
 import urllib.request
 from http.client import HTTPMessage
-from pathlib import Path
 from typing import Any
 
 import polars as pl
+from deltalake import DeltaTable
 
 from cvm.bronze_fund_daily.core import schema
+from include.runtime import Lakehouse
 
+DOMAIN = "cvm"
+DATASET = "fund_daily"
 _USER_AGENT = "data-platform/bronze-cvm-fund-daily (+https://github.com/VitorFaccin/data-platform)"
 _TIMEOUT_SECONDS = 120
 _MERGE_OPTIONS = {
@@ -25,70 +31,58 @@ _MERGE_OPTIONS = {
 _REFRESHED_ON_REPUBLICATION = ("etag", "last_modified", "size_bytes", "last_seen_at")
 
 
-def warehouse_root() -> Path:
-    """Return the root of the local lakehouse (the ``warehouse`` volume in compose).
-
-    Returns:
-        Path: Directory holding landing files and Delta tables.
-
-    Raises:
-        NotImplementedError: For the gcp sink, not supported by this DAG yet — failing
-            loudly beats writing somewhere nobody expects.
-    """
-    sink = os.environ.get("DATA_PLATFORM_SINK", "local")
-    if sink != "local":
-        raise NotImplementedError(f"DATA_PLATFORM_SINK={sink!r}: only 'local' is supported yet")
-    return Path(os.environ.get("DATA_PLATFORM_WAREHOUSE", "/opt/airflow/warehouse"))
-
-
-def landing_path(root: Path, month: dt.date, sha256: str) -> Path:
+def landing_uri(lake: Lakehouse, month: dt.date, sha256: str) -> str:
     """Return where one version of a month's file is kept, named by its fingerprint.
 
     Args:
-        root (Path): Warehouse root.
+        lake (Lakehouse): Storage locations for the current mode.
         month (dt.date): First day of the month.
         sha256 (str): Fingerprint of the file content.
 
     Returns:
-        Path: ``landing/cvm/fund_daily/reference_month=YYYY-MM/<sha256>.zip``.
+        str: ``<landing>/cvm/fund_daily/reference_month=YYYY-MM/<sha256>.zip``.
     """
-    return root / "landing/cvm/fund_daily" / f"reference_month={month:%Y-%m}" / f"{sha256}.zip"
+    return lake.landing_uri(DOMAIN, DATASET, f"reference_month={month:%Y-%m}", f"{sha256}.zip")
 
 
-def manifest_path(root: Path) -> Path:
+def manifest_uri(lake: Lakehouse) -> str:
     """Return the Delta table recording every version of every month that reached bronze.
 
+    It lives with the tables, not in landing: the landing bucket archives old objects,
+    which a Delta log must never be.
+
     Args:
-        root (Path): Warehouse root.
+        lake (Lakehouse): Storage locations for the current mode.
 
     Returns:
-        Path: Location of the manifest Delta table.
+        str: ``<tables>/control/cvm/fund_daily_manifest``.
     """
-    return root / "landing/cvm/fund_daily/_manifest"
+    return lake.table_uri("control", DOMAIN, f"{DATASET}_manifest")
 
 
-def bronze_path(root: Path) -> Path:
+def bronze_uri(lake: Lakehouse) -> str:
     """Return the bronze Delta table, partitioned by ``reference_month``.
 
     Args:
-        root (Path): Warehouse root.
+        lake (Lakehouse): Storage locations for the current mode.
 
     Returns:
-        Path: Location of the bronze Delta table.
+        str: ``<tables>/bronze/cvm/fund_daily``.
     """
-    return root / "bronze/cvm/fund_daily"
+    return lake.table_uri("bronze", DOMAIN, DATASET)
 
 
-def _is_delta_table(path: Path) -> bool:
-    """Tell whether a Delta table already exists at ``path``.
+def _is_delta_table(lake: Lakehouse, uri: str) -> bool:
+    """Tell whether a Delta table already exists at ``uri``.
 
     Args:
-        path (Path): Candidate table location.
+        lake (Lakehouse): Storage locations, for the credentials delta-rs needs.
+        uri (str): Candidate table location.
 
     Returns:
-        bool: True when the directory holds a Delta transaction log.
+        bool: True when a Delta transaction log exists there.
     """
-    return (path / "_delta_log").is_dir()
+    return DeltaTable.is_deltatable(uri, storage_options=lake.storage_options)
 
 
 def _remote_file(url: str, headers: HTTPMessage) -> schema.RemoteFile:
@@ -155,39 +149,21 @@ def download(url: str) -> tuple[bytes, schema.RemoteFile]:
     return data, remote
 
 
-def save_landing(path: Path, data: bytes) -> None:
-    """Keep the raw file once; a known fingerprint is never rewritten.
-
-    Written under a temporary name and renamed, so a crash mid-write never leaves a
-    truncated file under a valid fingerprint.
-
-    Args:
-        path (Path): Target from ``landing_path``.
-        data (bytes): File content.
-    """
-    if path.exists():
-        return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    partial = path.with_suffix(".partial")
-    partial.write_bytes(data)
-    partial.replace(path)
-
-
-def current_version(root: Path, month: dt.date) -> schema.ManifestEntry | None:
+def current_version(lake: Lakehouse, month: dt.date) -> schema.ManifestEntry | None:
     """Return the version of ``month`` currently in bronze: the latest one seen.
 
     Args:
-        root (Path): Warehouse root.
+        lake (Lakehouse): Storage locations for the current mode.
         month (dt.date): First day of the month.
 
     Returns:
         schema.ManifestEntry | None: That version, or None if never ingested.
     """
-    path = manifest_path(root)
-    if not _is_delta_table(path):
+    uri = manifest_uri(lake)
+    if not _is_delta_table(lake, uri):
         return None
     rows = (
-        pl.scan_delta(str(path))
+        pl.scan_delta(uri, storage_options=lake.storage_options)
         .filter(pl.col("reference_month") == month)
         .sort("last_seen_at", descending=True)
         .head(1)
@@ -201,7 +177,7 @@ def current_version(root: Path, month: dt.date) -> schema.ManifestEntry | None:
     )
 
 
-def write_bronze(root: Path, frame: pl.DataFrame, month: dt.date) -> None:
+def write_bronze(lake: Lakehouse, frame: pl.DataFrame, month: dt.date) -> None:
     """Replace exactly one month's partition of bronze.
 
     The predicate is the whole point: without it ``mode="overwrite"`` replaces the
@@ -209,33 +185,40 @@ def write_bronze(root: Path, frame: pl.DataFrame, month: dt.date) -> None:
     rejects the write if any row falls outside the predicate.
 
     Args:
-        root (Path): Warehouse root.
+        lake (Lakehouse): Storage locations for the current mode.
         frame (pl.DataFrame): Parsed rows of one month.
         month (dt.date): First day of the month the rows belong to.
     """
-    path = bronze_path(root)
+    uri = bronze_uri(lake)
     options: dict[str, Any] = {"partition_by": [schema.BRONZE_PARTITION]}
-    if _is_delta_table(path):
+    if _is_delta_table(lake, uri):
         options["predicate"] = f"{schema.BRONZE_PARTITION} = '{month.isoformat()}'"
-    frame.write_delta(str(path), mode="overwrite", delta_write_options=options)
+    frame.write_delta(
+        uri, mode="overwrite", storage_options=lake.storage_options, delta_write_options=options
+    )
 
 
-def record_version(root: Path, entry: dict[str, Any]) -> None:
+def record_version(lake: Lakehouse, entry: dict[str, Any]) -> None:
     """Upsert one ingested version into the manifest (MERGE on the manifest key).
 
     Running it again with the same entry changes nothing but ``last_seen_at``.
 
     Args:
-        root (Path): Warehouse root.
+        lake (Lakehouse): Storage locations for the current mode.
         entry (dict[str, Any]): Row built by ``domain.manifest_entry``.
     """
-    path = manifest_path(root)
+    uri = manifest_uri(lake)
     frame = pl.DataFrame([entry], schema=schema.MANIFEST_SCHEMA)
-    if not _is_delta_table(path):
-        frame.write_delta(str(path), mode="error")
+    if not _is_delta_table(lake, uri):
+        frame.write_delta(uri, mode="error", storage_options=lake.storage_options)
         return
     (
-        frame.write_delta(str(path), mode="merge", delta_merge_options=_MERGE_OPTIONS)
+        frame.write_delta(
+            uri,
+            mode="merge",
+            storage_options=lake.storage_options,
+            delta_merge_options=_MERGE_OPTIONS,
+        )
         .when_matched_update(updates={c: f"s.{c}" for c in _REFRESHED_ON_REPUBLICATION})
         .when_not_matched_insert_all()
         .execute()
@@ -243,7 +226,7 @@ def record_version(root: Path, entry: dict[str, Any]) -> None:
 
 
 def refresh_version(
-    root: Path, month: dt.date, sha256: str, remote: schema.RemoteFile, now: dt.datetime
+    lake: Lakehouse, month: dt.date, sha256: str, remote: schema.RemoteFile, now: dt.datetime
 ) -> None:
     """Record that a month was republished with identical bytes (new ETag, same content).
 
@@ -251,7 +234,7 @@ def refresh_version(
     every day, until the content actually changed.
 
     Args:
-        root (Path): Warehouse root.
+        lake (Lakehouse): Storage locations for the current mode.
         month (dt.date): First day of the month.
         sha256 (str): Fingerprint of the (unchanged) content.
         remote (schema.RemoteFile): Metadata of the republished file.
@@ -273,7 +256,10 @@ def refresh_version(
     )
     (
         frame.write_delta(
-            str(manifest_path(root)), mode="merge", delta_merge_options=_MERGE_OPTIONS
+            manifest_uri(lake),
+            mode="merge",
+            storage_options=lake.storage_options,
+            delta_merge_options=_MERGE_OPTIONS,
         )
         .when_matched_update(updates={c: f"s.{c}" for c in _REFRESHED_ON_REPUBLICATION})
         .execute()

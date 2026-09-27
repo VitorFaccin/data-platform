@@ -8,9 +8,29 @@ value, subscriptions, redemptions and number of shareholders. CVM publishes them
 zip per month. This DAG keeps a faithful, typed copy of those files in bronze — and only
 re-ingests a month when its **content** actually changed.
 
-**Scope of this DAG today:** monthly files (2021-01 onwards), local sink, bronze only.
-Silver, the downstream Asset, the gcp sink and the 2000–2020 yearly files (`HIST/`) are
-later pieces.
+**Scope of this DAG today:** monthly files (2021-01 onwards), bronze only, in both runtime
+modes. Silver (its own DAG), the downstream Asset and the 2000–2020 yearly files (`HIST/`)
+are later pieces.
+
+## Local and cloud mode
+
+Locations come from `include/runtime.py`, switched by `DATA_PLATFORM_MODE`:
+
+| | `local` | `cloud` |
+|---|---|---|
+| landing | `/opt/airflow/warehouse/landing/cvm/fund_daily/…` | `gs://<landing-bucket>/cvm/fund_daily/…` |
+| bronze | `/opt/airflow/warehouse/bronze/cvm/fund_daily` | `gs://<lakehouse-bucket>/bronze/cvm/fund_daily` |
+| manifest | `/opt/airflow/warehouse/control/cvm/fund_daily_manifest` | `gs://<lakehouse-bucket>/control/cvm/fund_daily_manifest` |
+
+The manifest sits with the tables, not in landing: the landing bucket moves objects to
+ARCHIVE after 90 days, which a Delta log must never be.
+
+**Verified so far:** local mode end to end on real CVM files; cloud mode's write-once
+landing against a GCS emulator (the second write is refused by the precondition); cloud
+mode's failure without bucket variables (first task fails, naming the variable). **Not yet
+verified:** Delta writes to real GCS — the emulator does not implement the listing API
+delta-rs uses, and there is no billing-enabled project yet. The first cloud run is that
+test.
 
 ## Flow
 
@@ -67,7 +87,7 @@ airflow dags trigger bronze_cvm_fund_daily --conf '{"months": ["2025-09", "2025-
 | Table | Write shape | Key |
 |---|---|---|
 | bronze `bronze/cvm/fund_daily` | partition overwrite, predicate `reference_month = <month>` | one partition per month |
-| manifest `landing/cvm/fund_daily/_manifest` | `MERGE` | `(reference_month, sha256)` |
+| manifest `control/cvm/fund_daily_manifest` | `MERGE` | `(reference_month, sha256)` |
 | landing `landing/cvm/fund_daily/reference_month=YYYY-MM/<sha256>.zip` | write-once | the content fingerprint |
 
 Re-running any month, any number of times, leaves bronze with exactly that month's rows

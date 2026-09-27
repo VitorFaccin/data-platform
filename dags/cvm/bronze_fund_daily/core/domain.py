@@ -242,7 +242,7 @@ def manifest_entry(
     row_count: int,
     duplicate_key_rows: int,
     layout_version: int,
-    landing_path: str,
+    landing_uri: str,
     now: dt.datetime,
 ) -> dict[str, object]:
     """Build the manifest row recording one ingested version of a month.
@@ -254,7 +254,7 @@ def manifest_entry(
         row_count (int): Rows written to bronze.
         duplicate_key_rows (int): Rows sharing the grain key with another row.
         layout_version (int): Layout detected by the parser (1 or 2).
-        landing_path (str): Landing file path relative to the warehouse root.
+        landing_uri (str): Where the raw file was kept (local path or ``gs://`` URI).
         now (dt.datetime): Ingestion instant, UTC.
 
     Returns:
@@ -269,7 +269,7 @@ def manifest_entry(
         "row_count": row_count,
         "duplicate_key_rows": duplicate_key_rows,
         "layout_version": layout_version,
-        "landing_path": landing_path,
+        "landing_uri": landing_uri,
         "first_ingested_at": now,
         "last_seen_at": now,
     }

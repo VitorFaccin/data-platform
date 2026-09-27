@@ -1,4 +1,4 @@
-"""Every side effect of the informe diário DAG: HTTP, landing files and Delta tables."""
+"""Every side effect of the bronze_cvm_fund_daily DAG: HTTP, landing and Delta tables."""
 
 from __future__ import annotations
 
@@ -13,9 +13,9 @@ from typing import Any
 
 import polars as pl
 
-from cvm.informe_diario.core import schema
+from cvm.bronze_fund_daily.core import schema
 
-_USER_AGENT = "data-platform/cvm-informe-diario (+https://github.com/VitorFaccin/data-platform)"
+_USER_AGENT = "data-platform/bronze-cvm-fund-daily (+https://github.com/VitorFaccin/data-platform)"
 _TIMEOUT_SECONDS = 120
 _MERGE_OPTIONS = {
     "predicate": " AND ".join(f"t.{key} = s.{key}" for key in schema.MANIFEST_KEY),
@@ -50,9 +50,9 @@ def landing_path(root: Path, month: dt.date, sha256: str) -> Path:
         sha256 (str): Fingerprint of the file content.
 
     Returns:
-        Path: ``landing/cvm/informe_diario/reference_month=YYYY-MM/<sha256>.zip``.
+        Path: ``landing/cvm/fund_daily/reference_month=YYYY-MM/<sha256>.zip``.
     """
-    return root / "landing/cvm/informe_diario" / f"reference_month={month:%Y-%m}" / f"{sha256}.zip"
+    return root / "landing/cvm/fund_daily" / f"reference_month={month:%Y-%m}" / f"{sha256}.zip"
 
 
 def manifest_path(root: Path) -> Path:
@@ -64,7 +64,7 @@ def manifest_path(root: Path) -> Path:
     Returns:
         Path: Location of the manifest Delta table.
     """
-    return root / "landing/cvm/informe_diario/_manifest"
+    return root / "landing/cvm/fund_daily/_manifest"
 
 
 def bronze_path(root: Path) -> Path:
@@ -76,7 +76,7 @@ def bronze_path(root: Path) -> Path:
     Returns:
         Path: Location of the bronze Delta table.
     """
-    return root / "bronze/cvm/informe_diario"
+    return root / "bronze/cvm/fund_daily"
 
 
 def _is_delta_table(path: Path) -> bool:

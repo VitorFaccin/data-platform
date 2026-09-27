@@ -1,4 +1,7 @@
-# `cvm_informe_diario` — CVM daily fund reports → bronze
+# `bronze_cvm_fund_daily` — CVM daily fund reports → bronze
+
+CVM publishes this dataset as **Informe Diário** (`FI/DOC/INF_DIARIO`), the name to
+search for at the source.
 
 Every investment fund in Brazil reports, per day: total portfolio value, net assets, quota
 value, subscriptions, redemptions and number of shareholders. CVM publishes them as one
@@ -56,16 +59,16 @@ Trigger with these in the UI (*Trigger DAG* → the form) or the CLI:
 | Backfill every monthly file | `months: ["2021-01", …, current]` | Months already in bronze with the same ETag skip in seconds |
 
 ```bash
-airflow dags trigger cvm_informe_diario --conf '{"months": ["2025-09", "2025-10"]}'
+airflow dags trigger bronze_cvm_fund_daily --conf '{"months": ["2025-09", "2025-10"]}'
 ```
 
 ## Idempotency
 
 | Table | Write shape | Key |
 |---|---|---|
-| bronze `bronze/cvm/informe_diario` | partition overwrite, predicate `reference_month = <month>` | one partition per month |
-| manifest `landing/cvm/informe_diario/_manifest` | `MERGE` | `(reference_month, sha256)` |
-| landing `landing/cvm/informe_diario/reference_month=YYYY-MM/<sha256>.zip` | write-once | the content fingerprint |
+| bronze `bronze/cvm/fund_daily` | partition overwrite, predicate `reference_month = <month>` | one partition per month |
+| manifest `landing/cvm/fund_daily/_manifest` | `MERGE` | `(reference_month, sha256)` |
+| landing `landing/cvm/fund_daily/reference_month=YYYY-MM/<sha256>.zip` | write-once | the content fingerprint |
 
 Re-running any month, any number of times, leaves bronze with exactly that month's rows
 once. Bronze rows carry no ingestion timestamp on purpose, so a re-run produces the same
@@ -148,5 +151,6 @@ counts the offenders per version, and silver enforces the grain.
 
 ## Consumers
 
-None yet. Next piece: silver (`MERGE` on the grain) and the `bronze/cvm/informe_diario`
-Asset that will schedule it.
+None yet. Next piece: the `bronze/cvm/fund_daily` Asset and the `silver_cvm_fund_daily`
+DAG it schedules (`MERGE` on the grain) — one DAG per layer, so this DAG never writes
+silver.

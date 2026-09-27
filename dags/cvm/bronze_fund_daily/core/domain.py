@@ -1,4 +1,4 @@
-"""Rules for ingesting the CVM informe diário: which months to check, and how to parse.
+"""Rules for ingesting CVM daily fund reports: which months to check, and how to parse.
 
 Pure: no network, no disk, no Airflow. Bytes in, DataFrame out, so every rule is
 provable with a hand-typed fixture in milliseconds.
@@ -18,7 +18,7 @@ import zipfile
 
 import polars as pl
 
-from cvm.informe_diario.core import schema
+from cvm.bronze_fund_daily.core import schema
 
 SOURCE_URL = "https://dados.cvm.gov.br/dados/FI/DOC/INF_DIARIO/DADOS/inf_diario_fi_{yyyymm}.zip"
 FIRST_MONTHLY_FILE = dt.date(2021, 1, 1)
@@ -306,7 +306,7 @@ def _fail_on_bad_values(frame: pl.DataFrame, month: dt.date) -> None:
             )
 
 
-def parse_informe(zip_bytes: bytes, month: dt.date, sha256: str) -> pl.DataFrame:
+def parse_fund_daily(zip_bytes: bytes, month: dt.date, sha256: str) -> pl.DataFrame:
     """Parse one monthly zip into bronze rows, asserting the layout at every step.
 
     Everything is read as text and cast explicitly: no type inference, no codec

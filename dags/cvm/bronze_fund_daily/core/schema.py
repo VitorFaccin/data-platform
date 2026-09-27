@@ -1,4 +1,4 @@
-"""Contracts for the CVM informe diário bronze table and its ingestion manifest.
+"""Contracts for the CVM daily fund bronze table and its ingestion manifest.
 
 Pure declarations: no I/O, no Airflow; Polars is imported for its dtypes only.
 

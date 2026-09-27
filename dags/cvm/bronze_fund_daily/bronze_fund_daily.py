@@ -1,4 +1,4 @@
-"""CVM informe diário → bronze, daily at 05:00 America/Sao_Paulo.
+"""CVM daily fund reports (Informe Diário) → bronze, daily at 05:00 America/Sao_Paulo.
 
 ``plan_months`` decides which months the run checks; ``ingest_month`` is mapped over
 them, one instance per month. An instance skips when the file is unchanged (ETag) or
@@ -16,8 +16,8 @@ from airflow.sdk import CronTriggerTimetable, Param, dag, get_current_context, t
 from airflow.sdk.exceptions import AirflowSkipException
 
 from alerting.google_chat import GoogleChatNotifier
-from cvm.informe_diario import adapters
-from cvm.informe_diario.core import domain
+from cvm.bronze_fund_daily import adapters
+from cvm.bronze_fund_daily.core import domain
 
 TIMEZONE = pendulum.timezone("America/Sao_Paulo")
 
@@ -84,7 +84,7 @@ def ingest_month(target: dict[str, str | bool]) -> None:
 
     landing = adapters.landing_path(root, month, sha256)
     adapters.save_landing(landing, data)
-    frame = domain.parse_informe(data, month, sha256)
+    frame = domain.parse_fund_daily(data, month, sha256)
     adapters.write_bronze(root, frame, month)
     adapters.record_version(
         root,
@@ -102,7 +102,7 @@ def ingest_month(target: dict[str, str | bool]) -> None:
 
 
 @dag(
-    dag_id="cvm_informe_diario",
+    dag_id="bronze_cvm_fund_daily",
     schedule=CronTriggerTimetable("0 5 * * *", timezone=TIMEZONE),
     start_date=pendulum.datetime(2026, 9, 1, tz=TIMEZONE),
     catchup=False,
@@ -130,9 +130,9 @@ def ingest_month(target: dict[str, str | bool]) -> None:
     doc_md=__doc__,
     tags=["cvm", "bronze"],
 )
-def informe_diario() -> None:
+def bronze_fund_daily() -> None:
     """Wire the tasks: plan the months, then ingest each one."""
     ingest_month.expand(target=plan_months())
 
 
-informe_diario()
+bronze_fund_daily()

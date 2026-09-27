@@ -1,4 +1,4 @@
-"""cvm_informe_diario: which months a run checks, how a file is parsed, and re-run safety.
+"""bronze_cvm_fund_daily: which months a run checks, how a file is parsed, and re-run safety.
 
 Three tiers in one file, cheapest first:
 - **window** and **change detection** — pure date and fingerprint rules;
@@ -18,8 +18,8 @@ from pathlib import Path
 import polars as pl
 import pytest
 
-from cvm.informe_diario import adapters
-from cvm.informe_diario.core import domain, schema
+from cvm.bronze_fund_daily import adapters
+from cvm.bronze_fund_daily.core import domain, schema
 
 FIXTURES = Path(__file__).parent / "fixtures"
 NOV_2023 = dt.date(2023, 11, 1)
@@ -183,7 +183,7 @@ def test_a_return_to_an_older_version_rewrites_bronze() -> None:
 
 
 def test_v1_file_lands_in_the_unified_bronze_schema() -> None:
-    frame = domain.parse_informe(_zip(NOV_2023, _v1()), NOV_2023, SHA)
+    frame = domain.parse_fund_daily(_zip(NOV_2023, _v1()), NOV_2023, SHA)
     assert frame.schema == pl.Schema(schema.BRONZE_SCHEMA)
     assert frame.height == 5
     assert frame.get_column("layout_version").unique().to_list() == [1]
@@ -193,7 +193,7 @@ def test_v1_file_lands_in_the_unified_bronze_schema() -> None:
 
 
 def test_values_are_exact_decimals_including_negatives() -> None:
-    frame = domain.parse_informe(_zip(NOV_2023, _v1()), NOV_2023, SHA)
+    frame = domain.parse_fund_daily(_zip(NOV_2023, _v1()), NOV_2023, SHA)
     first = frame.row(0, named=True)
     assert first["vl_total"] == Decimal("1000000.50")
     assert first["vl_quota"] == Decimal("1.234567890123")
@@ -202,7 +202,7 @@ def test_values_are_exact_decimals_including_negatives() -> None:
 
 
 def test_v2_file_keeps_subclasses_apart() -> None:
-    frame = domain.parse_informe(_zip(SEP_2026, _v2()), SEP_2026, SHA)
+    frame = domain.parse_fund_daily(_zip(SEP_2026, _v2()), SEP_2026, SHA)
     assert frame.get_column("layout_version").unique().to_list() == [2]
     same_day = frame.filter(
         (pl.col("cnpj_fundo_classe") == "11.111.111/0001-11")
@@ -214,7 +214,7 @@ def test_v2_file_keeps_subclasses_apart() -> None:
 def test_unknown_header_raises() -> None:
     csv = _replace_line(_v2(), 0, "TP_FUNDO_CLASSE;CNPJ_FUNDO_CLASSE;DT_COMPTC;VL_TOTAL")
     with pytest.raises(domain.UnexpectedLayoutError, match="unknown header"):
-        domain.parse_informe(_zip(SEP_2026, csv), SEP_2026, SHA)
+        domain.parse_fund_daily(_zip(SEP_2026, csv), SEP_2026, SHA)
 
 
 def test_zip_with_an_extra_member_raises() -> None:
@@ -223,50 +223,50 @@ def test_zip_with_an_extra_member_raises() -> None:
         archive.writestr("inf_diario_fi_202609.csv", _v2())
         archive.writestr("leia-me.txt", b"extra")
     with pytest.raises(domain.UnexpectedLayoutError, match="expected exactly"):
-        domain.parse_informe(buffer.getvalue(), SEP_2026, SHA)
+        domain.parse_fund_daily(buffer.getvalue(), SEP_2026, SHA)
 
 
 def test_zip_for_another_month_raises() -> None:
     with pytest.raises(domain.UnexpectedLayoutError, match="expected exactly"):
-        domain.parse_informe(
+        domain.parse_fund_daily(
             _zip(SEP_2026, _v2(), member="inf_diario_fi_202608.csv"), SEP_2026, SHA
         )
 
 
 def test_not_a_zip_raises() -> None:
     with pytest.raises(domain.UnexpectedLayoutError, match="not a zip"):
-        domain.parse_informe(b"<html>maintenance</html>", SEP_2026, SHA)
+        domain.parse_fund_daily(b"<html>maintenance</html>", SEP_2026, SHA)
 
 
 def test_non_utf8_bytes_raise() -> None:
     csv = _v2().replace(b"CLASSE FIF/FAPI", "CLASSE FIF/FAPÍ".encode("latin-1"))
     with pytest.raises(domain.UnexpectedLayoutError, match="UTF-8"):
-        domain.parse_informe(_zip(SEP_2026, csv), SEP_2026, SHA)
+        domain.parse_fund_daily(_zip(SEP_2026, csv), SEP_2026, SHA)
 
 
 def test_header_without_rows_raises() -> None:
     header_only = _v2().split(b"\r\n")[0] + b"\r\n"
     with pytest.raises(domain.UnexpectedLayoutError, match="no rows"):
-        domain.parse_informe(_zip(SEP_2026, header_only), SEP_2026, SHA)
+        domain.parse_fund_daily(_zip(SEP_2026, header_only), SEP_2026, SHA)
 
 
 def test_more_precision_than_published_raises_instead_of_rounding() -> None:
     """Polars would round 1.239 to 1.24 on the cast; the format check must stop it first."""
     csv = _replace_line(_v2(), 4, "FI;44.444.444/0001-44;;2026-09-25;42.239;1.0;42.00;0.00;0.00;1")
     with pytest.raises(domain.UnexpectedLayoutError, match="VL_TOTAL"):
-        domain.parse_informe(_zip(SEP_2026, csv), SEP_2026, SHA)
+        domain.parse_fund_daily(_zip(SEP_2026, csv), SEP_2026, SHA)
 
 
 def test_empty_required_value_raises() -> None:
     csv = _replace_line(_v2(), 4, "FI;44.444.444/0001-44;;2026-09-25;42.00;1.0;42.00;0.00;0.00;")
     with pytest.raises(domain.UnexpectedLayoutError, match="empty values in NR_COTST"):
-        domain.parse_informe(_zip(SEP_2026, csv), SEP_2026, SHA)
+        domain.parse_fund_daily(_zip(SEP_2026, csv), SEP_2026, SHA)
 
 
 def test_row_dated_outside_the_month_raises() -> None:
     csv = _replace_line(_v2(), 4, "FI;44.444.444/0001-44;;2026-10-01;42.00;1.0;42.00;0.00;0.00;1")
     with pytest.raises(domain.UnexpectedLayoutError, match="outside the month"):
-        domain.parse_informe(_zip(SEP_2026, csv), SEP_2026, SHA)
+        domain.parse_fund_daily(_zip(SEP_2026, csv), SEP_2026, SHA)
 
 
 def test_source_duplicates_are_kept_and_counted() -> None:
@@ -274,13 +274,13 @@ def test_source_duplicates_are_kept_and_counted() -> None:
     csv = _replace_line(
         _v2(), 5, "FI;11.111.111/0001-11;;2026-09-01;2000000.00;2.5;1999000.00;0.00;0.00;25"
     )
-    frame = domain.parse_informe(_zip(SEP_2026, csv), SEP_2026, SHA)
+    frame = domain.parse_fund_daily(_zip(SEP_2026, csv), SEP_2026, SHA)
     assert frame.height == 5
     assert domain.count_duplicate_keys(frame) == 2
 
 
 def test_clean_file_has_no_duplicate_keys() -> None:
-    frame = domain.parse_informe(_zip(SEP_2026, _v2()), SEP_2026, SHA)
+    frame = domain.parse_fund_daily(_zip(SEP_2026, _v2()), SEP_2026, SHA)
     assert domain.count_duplicate_keys(frame) == 0
 
 
@@ -300,8 +300,8 @@ def _bronze(root: Path) -> pl.DataFrame:
 
 
 def test_rerunning_a_month_leaves_bronze_identical(tmp_path: Path) -> None:
-    sep = domain.parse_informe(_zip(SEP_2026, _v2()), SEP_2026, SHA)
-    nov = domain.parse_informe(_zip(NOV_2023, _v1()), NOV_2023, SHA)
+    sep = domain.parse_fund_daily(_zip(SEP_2026, _v2()), SEP_2026, SHA)
+    nov = domain.parse_fund_daily(_zip(NOV_2023, _v1()), NOV_2023, SHA)
     adapters.write_bronze(tmp_path, sep, SEP_2026)
     adapters.write_bronze(tmp_path, nov, NOV_2023)
     before = _bronze(tmp_path)
@@ -315,12 +315,12 @@ def test_rerunning_a_month_leaves_bronze_identical(tmp_path: Path) -> None:
 
 def test_rewriting_a_month_never_touches_the_others(tmp_path: Path) -> None:
     """The predicate trap: an unscoped overwrite would wipe November here."""
-    nov = domain.parse_informe(_zip(NOV_2023, _v1()), NOV_2023, SHA)
+    nov = domain.parse_fund_daily(_zip(NOV_2023, _v1()), NOV_2023, SHA)
     adapters.write_bronze(tmp_path, nov, NOV_2023)
     adapters.write_bronze(
-        tmp_path, domain.parse_informe(_zip(SEP_2026, _v2()), SEP_2026, SHA), SEP_2026
+        tmp_path, domain.parse_fund_daily(_zip(SEP_2026, _v2()), SEP_2026, SHA), SEP_2026
     )
-    smaller_sep = domain.parse_informe(_zip(SEP_2026, _v2()), SEP_2026, "e" * 64).head(2)
+    smaller_sep = domain.parse_fund_daily(_zip(SEP_2026, _v2()), SEP_2026, "e" * 64).head(2)
 
     adapters.write_bronze(tmp_path, smaller_sep, SEP_2026)
 

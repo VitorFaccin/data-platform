@@ -24,6 +24,12 @@ tables in the `warehouse` Docker volume); `gcp` routes the same DAGs to GCS + Bi
 - **One DAG = one folder** under `dags/<domain>/<dag_name>/`; the DAG file and the test
   file are NAMED AFTER THE FOLDER (`<dag_name>/<dag_name>.py`,
   `tests/<domain>/<dag_name>/test_<dag_name>.py`). Never `dag.py`, never `main.py`.
+- **Names say layer, domain and dataset**: folder `dags/<domain>/<layer>_<dataset>/`,
+  `dag_id` `<layer>_<domain>_<dataset>` (`dags/cvm/bronze_fund_daily/` →
+  `bronze_cvm_fund_daily`), tables `<layer>/<domain>/<dataset>`. Datasets get technical
+  English names; the source's own name (e.g. CVM's "Informe Diário") goes in the README.
+- **One DAG per layer**: a DAG writes exactly one layer; the next layer is its own DAG,
+  scheduled by the previous layer's Asset.
 - **`core/` holds exactly `schema.py` and `domain.py`, and stays pure**: no airflow, no
   google.*, no requests, no deltalake, no disk. What is not a contract or a rule is I/O →
   `adapters.py`. No `utils.py`, no `helpers.py`, no subpackages in `core/`.
@@ -70,8 +76,8 @@ tables in the `warehouse` Docker volume); `gcp` routes the same DAGs to GCS + Bi
   fixtures next to the test. Fixtures never contain real personal data.
 - Comments explain WHY, not what. A future reader must find the reasoning, not narration.
 - Conventional commits (`feat:`, `fix:`, `test:`, `docs:`, `ci:`, `infra:`).
-- English everywhere in code and docs. Gold column names may follow the source's
-  Portuguese vocabulary (`dim_fundo`, `fato_informe_diario`) — they are domain terms.
+- English everywhere in code, docs, table names and new columns. Columns copied from a
+  source keep the source's names (`cnpj_fundo_classe`, `vl_quota`).
 - Work lands through branches and pull requests, never direct pushes to `main`.
 
 ## Gotchas

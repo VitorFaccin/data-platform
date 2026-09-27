@@ -1,0 +1,10 @@
+# Everything is LF. A CRLF shell script inside a Linux container fails with
+# `env: 'bash\r': No such file or directory` — a message that names neither the file
+# nor the cause. Cheaper to normalise here than to debug there.
+* text=auto eol=lf
+*.png binary
+*.parquet binary
+
+# Fixtures are byte-exact evidence (ISO-8859-1, CRLF as published by Receita):
+# git must never normalise them.
+tests/**/fixtures/* binary

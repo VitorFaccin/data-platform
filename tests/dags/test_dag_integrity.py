@@ -63,6 +63,20 @@ def test_every_dag_folder_is_a_complete_package(dag_bag) -> None:  # noqa: ANN00
         assert (folder / "README.md").exists(), f"{dag_id}: missing README.md in {folder}"
 
 
+def test_every_task_alerts_on_failure(dag_bag) -> None:  # noqa: ANN001
+    """A failure nobody hears about is a failure that lasts until someone looks.
+
+    Set once per DAG: default_args={"on_failure_callback": GoogleChatNotifier()}
+    (plugins/alerting). It fires after the last retry, so retried blips stay quiet.
+    """
+    for dag_id, dag in dag_bag.dags.items():
+        for task in dag.tasks:
+            assert task.on_failure_callback, (
+                f"{dag_id}.{task.task_id}: no on_failure_callback — wire GoogleChatNotifier "
+                "through default_args"
+            )
+
+
 def test_no_dag_uses_catchup_accidentally(dag_bag) -> None:  # noqa: ANN001
     """Backfills are explicit acts here, never a side effect of a schedule change.
 

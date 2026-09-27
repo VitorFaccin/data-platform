@@ -122,7 +122,9 @@ core of the Python-first decision below.
 ## Roadmap
 
 Two domains and one API, chosen so each forces a different ingestion problem — and so
-they cross in gold instead of sitting side by side.
+they cross in gold instead of sitting side by side. The next pieces and the design already
+agreed for each are in [docs/ROADMAP.md](docs/ROADMAP.md); what the CVM files actually
+contain is in [docs/CVM_DATA.md](docs/CVM_DATA.md).
 
 | Domain | Source shape | What it forces |
 |---|---|---|
@@ -143,7 +145,7 @@ they cross in gold instead of sitting side by side.
 │   ├── dags/test_dag_integrity.py     # every DAG parses + house conventions hold
 │   └── plugins/                       # the notifier's behaviour, including its failures
 ├── infra/                        # the GCP footprint as Terraform (validated in CI)
-├── docs/                         # ARCHITECTURE.md · DATA_CONTRACT.md
+├── docs/                         # ARCHITECTURE · DATA_CONTRACT · ROADMAP · CVM_DATA
 ├── Dockerfile                    # apache/airflow:3.3.1-python3.13 + requirements.txt, baked at build
 ├── docker-compose.yml            # Airflow 3.3.1, LocalExecutor, one command
 └── .github/workflows/ci.yml      # lint (<1 min) + integrity suite + image build

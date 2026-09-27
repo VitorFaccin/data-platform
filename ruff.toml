@@ -1,0 +1,27 @@
+# House Python style, codified so the standard is checkable rather than remembered.
+# Same conventions as github.com/VitorFaccin/semantic-layer — one house style across repos.
+line-length = 100
+# First-party roots = what Airflow puts on sys.path. Without this, `cvm`, `alerting`
+# and every future domain package sort as third-party imports.
+src = ["dags", "plugins"]
+target-version = "py313"  # the image's interpreter (Dockerfile)
+
+[lint]
+# E/W  pycodestyle (PEP 8)      F   pyflakes (real bugs)
+# I    import order             UP  pyupgrade (modern syntax)
+# ANN  missing type annotations D   docstring presence/format
+# PLC0415  import inside a function: imports live at the top of the module (PEP 8);
+#          docs/ARCHITECTURE.md "Module conventions" has the measured parse-time cost
+select = ["E", "W", "F", "I", "UP", "ANN", "D", "PLC0415"]
+ignore = [
+    "D203",    # conflicts with D211 (blank line before class docstring)
+    "D213",    # conflicts with D212 (multi-line summary on the first line)
+    "ANN401",  # allow typing.Any where a payload is genuinely untyped JSON
+]
+
+[lint.per-file-ignores]
+# Test modules document intent in the function name and the docstring body.
+"tests/**" = ["D103", "D100"]
+
+[lint.pydocstyle]
+convention = "google"

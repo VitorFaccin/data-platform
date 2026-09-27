@@ -1,0 +1,110 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A newer push to the same branch cancels the older run: nobody needs the results of a
+# commit that has already been superseded.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Fast feedback, no Airflow install: fails in under a minute on the mistakes that are
+  # cheapest to catch.
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install lint tooling
+        run: pip install ruff==0.15.20 yamllint==1.35.1
+
+      - name: Ruff (PEP 8, imports, typing, docstrings)
+        run: ruff check .
+
+      - name: YAML (compose file, workflows)
+        run: yamllint -c .yamllint.yml .
+
+      - name: Terraform fmt + validate
+        # Runs entirely offline (-backend=false): proves the infra/ code is well-formed
+        # without credentials, so the folder cannot rot silently between applies.
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+      - run: terraform -chdir=infra fmt -check -diff
+      - run: terraform -chdir=infra init -backend=false
+      - run: terraform -chdir=infra validate
+
+      - name: No private keys committed
+        # secrets/ is gitignored and pre-commit runs detect-private-key, but both are
+        # local and skippable. This is the check nobody can skip.
+        run: |
+          if git grep -lE -- "-----BEGIN ([A-Z]+ )?PRIVATE KEY-----"; then
+            echo "::error::private key material found in tracked files"
+            exit 1
+          fi
+          echo "no private keys"
+
+      - name: Line endings are LF
+        # A CRLF .sh breaks a Linux container entrypoint with `env: 'bash\r'`, a message
+        # that names neither the file nor the cause. Cheaper to assert here.
+        run: |
+          if git ls-files --eol | grep -E 'w/crlf|w/mixed'; then
+            echo "::error::CRLF found in the working tree — see .gitattributes"
+            exit 1
+          fi
+          echo "all LF"
+
+  # The real thing: install the SAME Airflow the image ships, parse every DAG (the
+  # integrity gate) and run every per-DAG suite.
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # Same interpreter as the image (Dockerfile pins apache/airflow:3.3.1-python3.13).
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install Airflow 3.3.1 with the official constraints
+        # The constraints file pins the whole dependency tree to what 3.3.1 was released
+        # and tested against — without it, pip resolves a slightly different (untested)
+        # set on every run and the suite goes flaky for reasons unrelated to this repo.
+        env:
+          CONSTRAINTS_URL: >-
+            https://raw.githubusercontent.com/apache/airflow/constraints-3.3.1/constraints-3.13.txt
+        run: |
+          pip install "apache-airflow==3.3.1" --constraint "$CONSTRAINTS_URL"
+          pip install -r tests/requirements.txt
+
+      - name: DAG integrity + per-DAG suites
+        env:
+          # DagBag only needs a home directory, not a running Airflow.
+          AIRFLOW_HOME: /tmp/airflow-home
+        run: pytest -m "not integration"
+
+  # Builds the exact image compose runs. The test job installs with pip on the runner,
+  # which cannot catch the one failure specific to the image: a requirements.txt pin
+  # that conflicts with the frozen set apache/airflow:3.3.1 ships. Runs in parallel
+  # with test, so it adds no wall-clock time.
+  image:
+    name: Image build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t data-platform-airflow:ci .

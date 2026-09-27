@@ -1,0 +1,16 @@
+# Lint for the YAML the repo owns (compose, workflows).
+extends: default
+
+rules:
+  line-length:
+    max: 110
+  document-start: disable
+  truthy:
+    check-keys: false
+  comments:
+    min-spaces-from-content: 1
+
+ignore: |
+  .venv/
+  venv/
+  logs/

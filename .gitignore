@@ -1,0 +1,32 @@
+# Secrets and local environment
+.env
+secrets/*
+!secrets/README.md
+*.tfvars
+!terraform.tfvars.example
+
+# Terraform state is NEVER committed: it contains resource IDs and can contain
+# secrets. The remote backend (GCS) is the single source of truth.
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+venv/
+.venv/
+
+# Airflow local runtime
+logs/
+airflow.db
+airflow.cfg
+webserver_config.py
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store

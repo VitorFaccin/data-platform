@@ -1,9 +1,9 @@
 # House Python style, codified so the standard is checkable rather than remembered.
 # Same conventions as github.com/VitorFaccin/semantic-layer — one house style across repos.
 line-length = 100
-# First-party roots = what Airflow puts on sys.path. Without this, `cvm`, `alerting`
-# and every future domain package sort as third-party imports.
-src = ["dags", "plugins"]
+# First-party roots = what is on sys.path at runtime: dags/ and plugins/ (Airflow) and
+# the repo root (PYTHONPATH, for `include`). Without this they sort as third-party.
+src = ["dags", "plugins", "."]
 target-version = "py313"  # the image's interpreter (Dockerfile)
 
 [lint]

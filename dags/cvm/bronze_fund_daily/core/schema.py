@@ -80,7 +80,7 @@ MANIFEST_SCHEMA: dict[str, pl.DataType] = {
     "row_count": pl.Int64(),
     "duplicate_key_rows": pl.Int64(),
     "layout_version": pl.Int8(),
-    "landing_path": pl.String(),
+    "landing_uri": pl.String(),
     "first_ingested_at": pl.Datetime(time_unit="us", time_zone="UTC"),
     "last_seen_at": pl.Datetime(time_unit="us", time_zone="UTC"),
 }

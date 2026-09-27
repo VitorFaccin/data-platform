@@ -1,13 +1,16 @@
 # include/
 
-Shared helpers that more than one DAG uses — and the admission rule that keeps this
-folder from becoming a junk drawer:
+Shared platform code — and the admission rule that keeps this folder from becoming a
+junk drawer:
 
-> Code enters `include/` only if it **knows how to talk to a system** (HTTP session with
-> retries, GCS client, BigQuery helpers) and knows **nothing about any dataset, table or
-> business rule**. The test: if a table name or a dataset-specific rule appears in the
-> code, it belongs inside that DAG's folder, duplicated if necessary.
+> Code enters `include/` only if it **knows how to talk to a system** (storage, secrets,
+> HTTP) and knows **nothing about any dataset, table or business rule**. The test: if a
+> table name or a dataset-specific rule appears in the code, it belongs inside that DAG's
+> folder, duplicated if necessary.
 
-Empty right now on purpose: until two DAGs need the same system code there is nothing
-shared, and an abstraction extracted before its second consumer exists is usually the
-wrong abstraction.
+| Module | What | Why it is shared |
+|---|---|---|
+| `runtime.py` | The `DATA_PLATFORM_MODE` switch: storage locations (local volume or GCS buckets), write-once landing, secrets (`.env` or Secret Manager) | Every DAG and the alerting plugin must behave the same way in each mode; one module deciding means no DAG branches on the mode itself |
+
+Importable as `from include import runtime`: compose puts `/opt/airflow` on
+`PYTHONPATH`, and the tests put the repository root on `sys.path`.

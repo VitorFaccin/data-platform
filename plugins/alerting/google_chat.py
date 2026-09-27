@@ -7,24 +7,29 @@ anyone.
 
 Two failure modes are handled on purpose:
 
-- **No webhook configured** (local runs, CI): the alert degrades to a log warning. A
-  missing secret must not turn every local failure into a second, confusing error.
+- **No webhook available** (unset in ``.env``, absent from Secret Manager, or the
+  secret cannot be read): the alert degrades to a log warning. A missing secret must not
+  turn every failure into a second, confusing error.
 - **The webhook call itself fails**: logged and swallowed. BaseNotifier re-raises
   whatever ``notify`` raises, and an alerting outage must never replace the task's real
   exception in the logs.
+
+The webhook URL is a secret, read through ``include.runtime.get_secret``: from ``.env``
+in local mode, from Secret Manager (``google-chat-webhook-url``) in cloud mode.
 """
 
 from __future__ import annotations
 
 import json
-import os
 import urllib.parse
 import urllib.request
 from typing import Any
 
 from airflow.sdk import BaseNotifier
 
-WEBHOOK_ENV_VAR = "GOOGLE_CHAT_WEBHOOK_URL"
+from include import runtime
+
+WEBHOOK_SECRET = "google_chat_webhook_url"
 _MAX_ERROR_CHARS = 1_000
 _TIMEOUT_SECONDS = 10
 
@@ -80,7 +85,7 @@ def threaded_webhook_url(webhook_url: str, thread_key: str) -> str:
 
 
 class GoogleChatNotifier(BaseNotifier):
-    """Post a task failure to the Google Chat space behind ``GOOGLE_CHAT_WEBHOOK_URL``."""
+    """Post a task failure to the Google Chat space behind the webhook secret."""
 
     def notify(self, context: dict[str, Any]) -> None:
         """Send the alert and never raise (see the module docstring).
@@ -90,9 +95,13 @@ class GoogleChatNotifier(BaseNotifier):
         Args:
             context (dict[str, Any]): The Airflow context handed to ``on_failure_callback``.
         """
-        webhook_url = os.environ.get(WEBHOOK_ENV_VAR)
+        try:
+            webhook_url = runtime.get_secret(WEBHOOK_SECRET)
+        except Exception:
+            self.log.exception("Could not read the %s secret — alert not sent.", WEBHOOK_SECRET)
+            return
         if not webhook_url:
-            self.log.warning("%s is not set — failure alert not sent.", WEBHOOK_ENV_VAR)
+            self.log.warning("Secret %s is not set — failure alert not sent.", WEBHOOK_SECRET)
             return
 
         ti = context["ti"]

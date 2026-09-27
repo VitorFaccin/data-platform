@@ -18,6 +18,7 @@ from airflow.sdk.exceptions import AirflowSkipException
 from alerting.google_chat import GoogleChatNotifier
 from cvm.bronze_fund_daily import adapters
 from cvm.bronze_fund_daily.core import domain
+from include import runtime
 
 TIMEZONE = pendulum.timezone("America/Sao_Paulo")
 
@@ -62,7 +63,7 @@ def ingest_month(target: dict[str, str | bool]) -> None:
     """
     month = dt.date.fromisoformat(str(target["month"]))
     get_current_context()["month_label"] = f"{month:%Y-%m}"
-    root = adapters.warehouse_root()
+    lake = runtime.lakehouse()
     url = domain.source_url(month)
 
     remote = adapters.head(url)
@@ -71,7 +72,7 @@ def ingest_month(target: dict[str, str | bool]) -> None:
             raise AirflowSkipException(f"{month:%Y-%m} not published yet (404)")
         raise FileNotFoundError(f"{url} answered 404 for a past month")
 
-    current = adapters.current_version(root, month)
+    current = adapters.current_version(lake, month)
     if not target["force"] and domain.etag_unchanged(remote, current):
         raise AirflowSkipException(f"{month:%Y-%m} unchanged (ETag {remote.etag})")
 
@@ -79,15 +80,15 @@ def ingest_month(target: dict[str, str | bool]) -> None:
     sha256 = domain.sha256_hex(data)
     now = dt.datetime.now(dt.UTC)
     if not target["force"] and domain.content_unchanged(sha256, current):
-        adapters.refresh_version(root, month, sha256, remote, now)
+        adapters.refresh_version(lake, month, sha256, remote, now)
         raise AirflowSkipException(f"{month:%Y-%m} republished with identical content")
 
-    landing = adapters.landing_path(root, month, sha256)
-    adapters.save_landing(landing, data)
+    landing = adapters.landing_uri(lake, month, sha256)
+    lake.write_once(landing, data)
     frame = domain.parse_fund_daily(data, month, sha256)
-    adapters.write_bronze(root, frame, month)
+    adapters.write_bronze(lake, frame, month)
     adapters.record_version(
-        root,
+        lake,
         domain.manifest_entry(
             month=month,
             sha256=sha256,
@@ -95,7 +96,7 @@ def ingest_month(target: dict[str, str | bool]) -> None:
             row_count=frame.height,
             duplicate_key_rows=domain.count_duplicate_keys(frame),
             layout_version=int(frame.get_column("layout_version")[0]),
-            landing_path=str(landing.relative_to(root)),
+            landing_uri=landing,
             now=now,
         ),
     )

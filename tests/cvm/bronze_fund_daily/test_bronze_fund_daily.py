@@ -20,6 +20,7 @@ import pytest
 
 from cvm.bronze_fund_daily import adapters
 from cvm.bronze_fund_daily.core import domain, schema
+from include import runtime
 
 FIXTURES = Path(__file__).parent / "fixtures"
 NOV_2023 = dt.date(2023, 11, 1)
@@ -287,44 +288,59 @@ def test_clean_file_has_no_duplicate_keys() -> None:
 NOW = dt.datetime(2026, 9, 27, 8, 0, tzinfo=dt.UTC)
 
 
-def _bronze(root: Path) -> pl.DataFrame:
+@pytest.fixture
+def lake(tmp_path: Path) -> runtime.Lakehouse:
+    """Build a local-mode lakehouse inside a temporary directory.
+
+    Args:
+        tmp_path (Path): Per-test directory from pytest.
+
+    Returns:
+        runtime.Lakehouse: Tables and landing under ``tmp_path``.
+    """
+    return runtime.Lakehouse(
+        mode=runtime.Mode.LOCAL, tables_root=str(tmp_path), landing_root=str(tmp_path / "landing")
+    )
+
+
+def _bronze(lake: runtime.Lakehouse) -> pl.DataFrame:
     """Read the whole bronze table in a stable order.
 
     Args:
-        root (Path): Warehouse root.
+        lake (runtime.Lakehouse): Where the tables live.
 
     Returns:
         pl.DataFrame: Every bronze row, sorted by the grain key.
     """
-    return pl.read_delta(str(adapters.bronze_path(root))).sort(list(schema.BRONZE_KEY))
+    return pl.read_delta(adapters.bronze_uri(lake)).sort(list(schema.BRONZE_KEY))
 
 
-def test_rerunning_a_month_leaves_bronze_identical(tmp_path: Path) -> None:
+def test_rerunning_a_month_leaves_bronze_identical(lake: runtime.Lakehouse) -> None:
     sep = domain.parse_fund_daily(_zip(SEP_2026, _v2()), SEP_2026, SHA)
     nov = domain.parse_fund_daily(_zip(NOV_2023, _v1()), NOV_2023, SHA)
-    adapters.write_bronze(tmp_path, sep, SEP_2026)
-    adapters.write_bronze(tmp_path, nov, NOV_2023)
-    before = _bronze(tmp_path)
+    adapters.write_bronze(lake, sep, SEP_2026)
+    adapters.write_bronze(lake, nov, NOV_2023)
+    before = _bronze(lake)
 
-    adapters.write_bronze(tmp_path, sep, SEP_2026)
+    adapters.write_bronze(lake, sep, SEP_2026)
 
-    after = _bronze(tmp_path)
+    after = _bronze(lake)
     assert after.equals(before)
     assert after.height == sep.height + nov.height
 
 
-def test_rewriting_a_month_never_touches_the_others(tmp_path: Path) -> None:
+def test_rewriting_a_month_never_touches_the_others(lake: runtime.Lakehouse) -> None:
     """The predicate trap: an unscoped overwrite would wipe November here."""
     nov = domain.parse_fund_daily(_zip(NOV_2023, _v1()), NOV_2023, SHA)
-    adapters.write_bronze(tmp_path, nov, NOV_2023)
+    adapters.write_bronze(lake, nov, NOV_2023)
     adapters.write_bronze(
-        tmp_path, domain.parse_fund_daily(_zip(SEP_2026, _v2()), SEP_2026, SHA), SEP_2026
+        lake, domain.parse_fund_daily(_zip(SEP_2026, _v2()), SEP_2026, SHA), SEP_2026
     )
     smaller_sep = domain.parse_fund_daily(_zip(SEP_2026, _v2()), SEP_2026, "e" * 64).head(2)
 
-    adapters.write_bronze(tmp_path, smaller_sep, SEP_2026)
+    adapters.write_bronze(lake, smaller_sep, SEP_2026)
 
-    bronze = _bronze(tmp_path)
+    bronze = _bronze(lake)
     assert bronze.filter(pl.col("reference_month") == SEP_2026).height == 2
     assert bronze.filter(pl.col("reference_month") == NOV_2023).height == nov.height
 
@@ -347,41 +363,41 @@ def _entry(sha256: str, etag: str, at: dt.datetime = NOW) -> dict[str, object]:
         row_count=5,
         duplicate_key_rows=0,
         layout_version=2,
-        landing_path="landing/x.zip",
+        landing_uri="landing/x.zip",
         now=at,
     )
 
 
-def test_manifest_merge_is_idempotent(tmp_path: Path) -> None:
-    adapters.record_version(tmp_path, _entry(SHA, '"a"'))
-    adapters.record_version(tmp_path, _entry(SHA, '"a"'))
-    assert pl.read_delta(str(adapters.manifest_path(tmp_path))).height == 1
+def test_manifest_merge_is_idempotent(lake: runtime.Lakehouse) -> None:
+    adapters.record_version(lake, _entry(SHA, '"a"'))
+    adapters.record_version(lake, _entry(SHA, '"a"'))
+    assert pl.read_delta(adapters.manifest_uri(lake)).height == 1
 
 
-def test_identical_republication_refreshes_the_etag(tmp_path: Path) -> None:
-    adapters.record_version(tmp_path, _entry(SHA, '"old"'))
+def test_identical_republication_refreshes_the_etag(lake: runtime.Lakehouse) -> None:
+    adapters.record_version(lake, _entry(SHA, '"old"'))
     later = NOW + dt.timedelta(days=1)
 
-    adapters.refresh_version(tmp_path, SEP_2026, SHA, _remote('"new"'), later)
+    adapters.refresh_version(lake, SEP_2026, SHA, _remote('"new"'), later)
 
-    current = adapters.current_version(tmp_path, SEP_2026)
+    current = adapters.current_version(lake, SEP_2026)
     assert current == schema.ManifestEntry(SEP_2026, sha256=SHA, etag='"new"')
-    assert pl.read_delta(str(adapters.manifest_path(tmp_path))).height == 1
+    assert pl.read_delta(adapters.manifest_uri(lake)).height == 1
 
 
-def test_current_version_follows_a_to_b_to_a(tmp_path: Path) -> None:
+def test_current_version_follows_a_to_b_to_a(lake: runtime.Lakehouse) -> None:
     sha_a, sha_b = "a" * 64, "b" * 64
-    adapters.record_version(tmp_path, _entry(sha_a, '"1"', NOW))
-    adapters.record_version(tmp_path, _entry(sha_b, '"2"', NOW + dt.timedelta(days=1)))
-    adapters.record_version(tmp_path, _entry(sha_a, '"3"', NOW + dt.timedelta(days=2)))
+    adapters.record_version(lake, _entry(sha_a, '"1"', NOW))
+    adapters.record_version(lake, _entry(sha_b, '"2"', NOW + dt.timedelta(days=1)))
+    adapters.record_version(lake, _entry(sha_a, '"3"', NOW + dt.timedelta(days=2)))
 
-    assert adapters.current_version(tmp_path, SEP_2026).sha256 == sha_a
-    assert pl.read_delta(str(adapters.manifest_path(tmp_path))).height == 2
+    assert adapters.current_version(lake, SEP_2026).sha256 == sha_a
+    assert pl.read_delta(adapters.manifest_uri(lake)).height == 2
 
 
-def test_landing_is_write_once(tmp_path: Path) -> None:
-    path = adapters.landing_path(tmp_path, SEP_2026, SHA)
-    adapters.save_landing(path, b"first")
-    adapters.save_landing(path, b"second")
-    assert path.read_bytes() == b"first"
-    assert not path.with_suffix(".partial").exists()
+def test_landing_is_write_once_and_named_by_fingerprint(lake: runtime.Lakehouse) -> None:
+    uri = adapters.landing_uri(lake, SEP_2026, SHA)
+    assert uri.endswith(f"landing/cvm/fund_daily/reference_month=2026-09/{SHA}.zip")
+    assert lake.write_once(uri, b"first")
+    assert not lake.write_once(uri, b"second")
+    assert Path(uri).read_bytes() == b"first"

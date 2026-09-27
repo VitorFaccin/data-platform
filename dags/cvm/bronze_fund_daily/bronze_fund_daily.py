@@ -4,6 +4,8 @@
 them, one instance per month. An instance skips when the file is unchanged (ETag) or
 republished with identical bytes (sha256); otherwise it keeps the raw file in landing,
 parses it against the known layouts and replaces that month's bronze partition.
+``publish`` then emits the bronze Asset carrying the months that changed — and is skipped
+itself when none did, so downstream DAGs never run for nothing.
 Full contract, schedule rationale and traps: README.md in this folder.
 """
 
@@ -16,6 +18,7 @@ from airflow.sdk import CronTriggerTimetable, Param, dag, get_current_context, t
 from airflow.sdk.exceptions import AirflowSkipException
 
 from alerting.google_chat import GoogleChatNotifier
+from cvm.assets import BRONZE_FUND_DAILY, CHANGED_MONTHS_KEY
 from cvm.bronze_fund_daily import adapters
 from cvm.bronze_fund_daily.core import domain
 from include import runtime
@@ -47,7 +50,7 @@ def plan_months() -> list[dict[str, str | bool]]:
     retry_exponential_backoff=True,
     map_index_template="{{ month_label }}",
 )
-def ingest_month(target: dict[str, str | bool]) -> None:
+def ingest_month(target: dict[str, str | bool]) -> str:
     """Ingest one month into bronze, skipping when the source did not change.
 
     Instances run one at a time because all of them commit to the same two Delta
@@ -56,6 +59,9 @@ def ingest_month(target: dict[str, str | bool]) -> None:
 
     Args:
         target (dict[str, str | bool]): Month (ISO date), may_be_missing and force flags.
+
+    Returns:
+        str: The month written (ISO date), collected by ``publish``.
 
     Raises:
         AirflowSkipException: When the month is unchanged or not published yet.
@@ -100,6 +106,21 @@ def ingest_month(target: dict[str, str | bool]) -> None:
             now=now,
         ),
     )
+    return month.isoformat()
+
+
+@task(outlets=[BRONZE_FUND_DAILY], trigger_rule="none_failed_min_one_success")
+def publish(written: list[str]) -> None:
+    """Emit the bronze Asset with the months whose partition was rewritten.
+
+    Runs when no ingestion failed and at least one wrote; when every month was skipped
+    it is skipped too, and a skipped task emits no Asset event.
+
+    Args:
+        written (list[str]): Months returned by the ingest_month instances that wrote.
+    """
+    months = sorted(month for month in written if month)
+    get_current_context()["outlet_events"][BRONZE_FUND_DAILY].extra = {CHANGED_MONTHS_KEY: months}
 
 
 @dag(
@@ -132,8 +153,8 @@ def ingest_month(target: dict[str, str | bool]) -> None:
     tags=["cvm", "bronze"],
 )
 def bronze_fund_daily() -> None:
-    """Wire the tasks: plan the months, then ingest each one."""
-    ingest_month.expand(target=plan_months())
+    """Wire the tasks: plan the months, ingest each one, announce what changed."""
+    publish(ingest_month.expand(target=plan_months()))
 
 
 bronze_fund_daily()

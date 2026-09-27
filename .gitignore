@@ -1,5 +1,7 @@
 # Secrets and local environment
 .env
+secrets/*
+!secrets/README.md
 *.tfvars
 !terraform.tfvars.example
 

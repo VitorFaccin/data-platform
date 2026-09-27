@@ -28,11 +28,17 @@ x-airflow-common: &airflow-common
     GCS_LANDING_BUCKET: ${GCS_LANDING_BUCKET:-}
     GCS_LAKEHOUSE_BUCKET: ${GCS_LAKEHOUSE_BUCKET:-}
     BQ_DATASET_GOLD: ${BQ_DATASET_GOLD:-gold}
+    # Google client libraries read this path; the file only matters in gcp mode.
+    GOOGLE_APPLICATION_CREDENTIALS: /opt/airflow/secrets/${GCP_SA_KEY_FILE:-gcp-sa.json}
+    GOOGLE_CHAT_WEBHOOK_URL: ${GOOGLE_CHAT_WEBHOOK_URL:-}
+    # Base of the log links inside failure alerts.
+    AIRFLOW__API__BASE_URL: http://localhost:8080
   volumes:
     - ./dags:/opt/airflow/dags
     - ./include:/opt/airflow/include
     - ./plugins:/opt/airflow/plugins
     - ./warehouse:/opt/airflow/warehouse
+    - ./secrets:/opt/airflow/secrets:ro
     - airflow-logs:/opt/airflow/logs
   depends_on: &airflow-common-depends
     postgres:

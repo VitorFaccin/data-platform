@@ -45,6 +45,16 @@ jobs:
       - run: terraform -chdir=infra init -backend=false
       - run: terraform -chdir=infra validate
 
+      - name: No private keys committed
+        # secrets/ is gitignored and pre-commit runs detect-private-key, but both are
+        # local and skippable. This is the check nobody can skip.
+        run: |
+          if git grep -lE -- "-----BEGIN ([A-Z]+ )?PRIVATE KEY-----"; then
+            echo "::error::private key material found in tracked files"
+            exit 1
+          fi
+          echo "no private keys"
+
       - name: Line endings are LF
         # A CRLF .sh breaks a Linux container entrypoint with `env: 'bash\r'`, a message
         # that names neither the file nor the cause. Cheaper to assert here.

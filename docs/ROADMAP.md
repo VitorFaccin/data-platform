@@ -4,9 +4,10 @@ Work lands in small pieces: the structure of a piece is agreed, then only that p
 built, reviewed and merged. This file records what is next and the decisions already
 taken for it, so the reasoning does not live only in a conversation.
 
-**Done:** platform foundation · `bronze_cvm_fund_daily` · local/cloud mode switch.
+**Done:** platform foundation · `bronze_cvm_fund_daily` · local/cloud mode switch ·
+the bronze Asset + `silver_cvm_fund_daily` + `include/delta.py` (pieces 1–3 below).
 
-## 1. Bronze announces what changed — the first Asset
+## 1. Bronze announces what changed — the first Asset ✅
 
 `bronze_cvm_fund_daily` gains a final `publish` task with
 `outlets=[Asset("bronze/cvm/fund_daily")]`.
@@ -20,7 +21,7 @@ taken for it, so the reasoning does not live only in a conversation.
   success". If every month was skipped (nothing changed at CVM), `publish` is skipped and
   silver does not run for nothing.
 
-## 2. `silver_cvm_fund_daily` — one clean row per fund class per day
+## 2. `silver_cvm_fund_daily` — one clean row per fund class per day ✅
 
 Its own DAG (one DAG per layer), scheduled by the bronze Asset.
 
@@ -39,9 +40,11 @@ What happens to each changed month:
 | Step | Rule |
 |---|---|
 | **Conform** | CNPJ to 14 digits (the registry's spelling); columns renamed to the platform's English vocabulary: `fund_class_cnpj`, `subclass_id`, `report_date`, `total_assets`, `quota_value`, `net_assets`, `subscriptions`, `redemptions`, `shareholders`; derived `net_flow = subscriptions − redemptions` |
-| **Dedupe** | byte-identical rows collapse to one; rows sharing the grain with identical figures but different types (the CVM 175 transition) keep the post-175 type |
-| **Reject** | rows sharing the grain with *different* figures cannot be resolved by a rule: they go to `silver/cvm/fund_daily_rejects` with the reason, never silently dropped |
-| **Gate** (fails the run) | no duplicate grain; no null key; `silver + collapsed duplicates + rejects = bronze` for the month |
+| **Dedupe, level 1** | rows sharing the grain with identical figures (repeated lines, or one fund under two types) collapse to one, the post-CVM 175 type first |
+| **Dedupe, level 2** | different figures, exactly one class report (post-175) and the rest legacy `FI` → the class report wins. Measured: all 21 conflicts in the first 15 months are this case (a fund reporting in both formats mid-adaptation) |
+| **Dedupe, level 3** | any other conflict **fails the run**, naming the key — never seen; a new kind of defect gets a human decision, not a guess |
+| **Discard log** | every row not kept goes to `silver/cvm/fund_daily_discarded` with its reason (`exact_duplicate`, `superseded_by_class_report`) — nothing disappears silently |
+| **Gate** (fails the run) | `silver + discarded = bronze` for the month; no duplicate grain; no null key |
 | **Write** | partition overwrite of the month — bronze changes a whole month at a time, so silver does too. `MERGE` is for entity tables (the registry), not for a monthly-replaced fact |
 | **Publish** | Asset `silver/cvm/fund_daily` with the months written |
 
@@ -49,7 +52,7 @@ Bronze keeps the source's names and defects; silver is where the platform's voca
 and quality rules start. Returns are **not** computed here: a daily return needs the
 previous business day, which may sit in another month — that belongs to gold's fact.
 
-## 3. `include/delta.py` — extracted when silver becomes the second consumer
+## 3. `include/delta.py` — extracted when silver becomes the second consumer ✅
 
 Partition overwrite with predicate, generic `MERGE`, "does the table exist", OPTIMIZE and
 VACUUM move from the bronze adapters to `include/delta.py` in the silver pull request,
@@ -85,7 +88,8 @@ manager the fund had in January.
 
 ## 6. Gold — tables that answer questions
 
-Gold is designed from questions, not from tables. Candidates, all answerable with the two
+Gold is designed from questions, not from tables. **The lead question is "where is the
+money going?"**; the model must also answer the others. All are answerable with the two
 CVM datasets (the benchmark comparison also needs the Central Bank's CDI):
 
 | Question | Needs |
@@ -98,7 +102,12 @@ CVM datasets (the benchmark comparison also needs the Central Bank's CDI):
 Model sketch: `fact_fund_daily` (grain: class × day — net assets, quota, flows,
 shareholders, daily return), `dim_fund_class` (SCD2: name, classification, benchmark,
 audience, status, manager, administrator), `dim_date`; marts per question published to
-BigQuery. The double-counting rule for funds of funds is decided and documented there.
+BigQuery.
+
+**Double counting applies to flows too**: money entering a fund of funds (FIC) and the FIC
+investing it in its master fund are two subscriptions. Industry totals exclude classes
+flagged `Classe_Cotas`, counting money where it is invested; the rule is stated on the
+table. Exact consolidation needs portfolio composition (CVM's CDA dataset) — later.
 
 ## Later
 

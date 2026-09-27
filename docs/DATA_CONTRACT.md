@@ -8,7 +8,7 @@ Each repo documents its own end, the way two services in a company would.
 
 | Aspect | Rule |
 |---|---|
-| **Location** | Delta table at `<layer>/<domain>/<table>/` — under `warehouse/` locally, under the lakehouse bucket in GCP |
+| **Location** | Delta table at `<layer>/<domain>/<table>/` — under the `warehouse` Docker volume locally, under the lakehouse bucket in GCP |
 | **Serving** | Gold tables only, in BigQuery as `gold.<domain>__<table>` (double underscore: unambiguous split between domain and table) |
 | **Signal** | One Airflow **Asset** per published table, emitted only after the producer's quality gates pass. Consumers schedule on it — never on a cron offset |
 | **Schema and grain** | Declared in the producer's `core/schema.py`; the grain and business key are stated in the producer DAG's README |

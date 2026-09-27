@@ -12,10 +12,6 @@ secrets/*
 *.tfstate.*
 .terraform.lock.hcl
 
-# Local warehouse output (the pipeline writes here in local mode)
-warehouse/*
-!warehouse/.gitkeep
-
 # Python
 __pycache__/
 *.py[cod]

@@ -10,4 +10,9 @@ FROM apache/airflow:3.3.1-python3.13
 
 COPY requirements.txt /requirements.txt
 
+# The local lakehouse is a named volume mounted here (docker-compose.yml). Creating the
+# directory in the image, as the airflow user, is what makes a fresh volume inherit
+# airflow's ownership; otherwise Docker creates it root-owned and every write fails.
+RUN mkdir -p /opt/airflow/warehouse
+
 RUN pip install --no-cache-dir "apache-airflow==${AIRFLOW_VERSION}" -r /requirements.txt

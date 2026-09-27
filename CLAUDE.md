@@ -8,7 +8,7 @@ Batch data platform on Apache Airflow 3.3.1: a **Python-first lakehouse**. Brazi
 public data (CVM funds, CNPJ registry, BCB series) lands as **Delta Lake** tables in
 bronze/silver/gold, transformed by **Polars**, with gold served through BigQuery.
 Local-first: `docker compose up` runs everything with `DATA_PLATFORM_SINK=local` (Delta
-tables under `warehouse/`); `gcp` routes the same DAGs to GCS + BigQuery declared in
+tables in the `warehouse` Docker volume); `gcp` routes the same DAGs to GCS + BigQuery declared in
 `infra/` (Terraform, not yet applied).
 
 ## Reading order
@@ -71,6 +71,8 @@ tables under `warehouse/`); `gcp` routes the same DAGs to GCS + BigQuery declare
 ## Gotchas
 
 - A Delta `mode="overwrite"` without a predicate replaces the WHOLE table.
+- The local lakehouse is a named Docker volume, never a bind mount: Docker Desktop's
+  Windows bind mounts break delta-rs multipart writes (files over ~10 MB).
 - Runtime dependencies are baked into the image (`Dockerfile` consumes
   `requirements.txt` at build). Adding one = edit `requirements.txt` + rebuild
   (`docker compose up --build`). Never reintroduce `_PIP_ADDITIONAL_REQUIREMENTS`:

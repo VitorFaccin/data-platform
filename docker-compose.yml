@@ -37,7 +37,10 @@ x-airflow-common: &airflow-common
     - ./dags:/opt/airflow/dags
     - ./include:/opt/airflow/include
     - ./plugins:/opt/airflow/plugins
-    - ./warehouse:/opt/airflow/warehouse
+    # A named volume, not a ./warehouse bind mount: on Docker Desktop for Windows, the
+    # bind-mount filesystem breaks delta-rs multipart writes of parquet files over ~10 MB
+    # ("Generic LocalFileSystem error: Upload aborted" — reproduced at 400k rows).
+    - warehouse:/opt/airflow/warehouse
     - ./secrets:/opt/airflow/secrets:ro
     - airflow-logs:/opt/airflow/logs
   depends_on: &airflow-common-depends
@@ -105,3 +108,4 @@ services:
 volumes:
   postgres-db:
   airflow-logs:
+  warehouse:

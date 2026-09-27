@@ -51,7 +51,7 @@ The same code runs in two places, switched by one variable:
 
 | | `DATA_PLATFORM_SINK=local` | `DATA_PLATFORM_SINK=gcp` |
 |---|---|---|
-| Landing + Delta tables | `warehouse/` on disk | GCS buckets |
+| Landing + Delta tables | the `warehouse` Docker volume | GCS buckets |
 | Serving | DuckDB over the Delta tables | BigQuery (gold only) |
 | Credentials | none | a least-privilege service account ([`infra/iam.tf`](infra/iam.tf)) |
 
@@ -137,8 +137,7 @@ they cross in gold instead of sitting side by side.
 │   └── plugins/                       # the notifier's behaviour, including its failures
 ├── infra/                        # the GCP footprint as Terraform (validated in CI)
 ├── docs/                         # ARCHITECTURE.md · DATA_CONTRACT.md
-├── warehouse/                    # local lakehouse (gitignored): landing + Delta tables
-├── Dockerfile                    # apache/airflow:3.3.1 + requirements.txt, baked at build
+├── Dockerfile                    # apache/airflow:3.3.1-python3.13 + requirements.txt, baked at build
 ├── docker-compose.yml            # Airflow 3.3.1, LocalExecutor, one command
 └── .github/workflows/ci.yml      # lint (<1 min) + integrity suite + image build
 ```
@@ -152,8 +151,10 @@ docker compose up           # first run builds the image; later runs reuse it
 
 Changed `requirements.txt`? Rebuild: `docker compose up --build`.
 
-Airflow UI at http://localhost:8080 (no login — SimpleAuthManager, local only). Delta
-tables land under `warehouse/`. Switching `DATA_PLATFORM_SINK=gcp` in `.env` routes the
+Airflow UI at http://localhost:8080 (no login — SimpleAuthManager, local only). Landing
+files and Delta tables live in the `warehouse` Docker volume, mounted at
+`/opt/airflow/warehouse` — peek with
+`docker compose exec airflow-scheduler python -c "import polars as pl; print(pl.read_delta('/opt/airflow/warehouse/bronze/cvm/informe_diario'))"`. Switching `DATA_PLATFORM_SINK=gcp` in `.env` routes the
 same DAGs to GCS + BigQuery: the buckets must exist ([`infra/`](infra/README.md)) and a
 service-account key goes in [`secrets/`](secrets/README.md). Failure alerts go to the
 Google Chat space in `GOOGLE_CHAT_WEBHOOK_URL`; left empty, they become log warnings.

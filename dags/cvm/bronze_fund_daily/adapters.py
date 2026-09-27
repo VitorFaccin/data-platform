@@ -14,20 +14,15 @@ from http.client import HTTPMessage
 from typing import Any
 
 import polars as pl
-from deltalake import DeltaTable
 
 from cvm.bronze_fund_daily.core import schema
+from include import delta
 from include.runtime import Lakehouse
 
 DOMAIN = "cvm"
 DATASET = "fund_daily"
 _USER_AGENT = "data-platform/bronze-cvm-fund-daily (+https://github.com/VitorFaccin/data-platform)"
 _TIMEOUT_SECONDS = 120
-_MERGE_OPTIONS = {
-    "predicate": " AND ".join(f"t.{key} = s.{key}" for key in schema.MANIFEST_KEY),
-    "source_alias": "s",
-    "target_alias": "t",
-}
 _REFRESHED_ON_REPUBLICATION = ("etag", "last_modified", "size_bytes", "last_seen_at")
 
 
@@ -70,19 +65,6 @@ def bronze_uri(lake: Lakehouse) -> str:
         str: ``<tables>/bronze/cvm/fund_daily``.
     """
     return lake.table_uri("bronze", DOMAIN, DATASET)
-
-
-def _is_delta_table(lake: Lakehouse, uri: str) -> bool:
-    """Tell whether a Delta table already exists at ``uri``.
-
-    Args:
-        lake (Lakehouse): Storage locations, for the credentials delta-rs needs.
-        uri (str): Candidate table location.
-
-    Returns:
-        bool: True when a Delta transaction log exists there.
-    """
-    return DeltaTable.is_deltatable(uri, storage_options=lake.storage_options)
 
 
 def _remote_file(url: str, headers: HTTPMessage) -> schema.RemoteFile:
@@ -160,7 +142,7 @@ def current_version(lake: Lakehouse, month: dt.date) -> schema.ManifestEntry | N
         schema.ManifestEntry | None: That version, or None if never ingested.
     """
     uri = manifest_uri(lake)
-    if not _is_delta_table(lake, uri):
+    if not delta.table_exists(lake, uri):
         return None
     rows = (
         pl.scan_delta(uri, storage_options=lake.storage_options)
@@ -180,22 +162,12 @@ def current_version(lake: Lakehouse, month: dt.date) -> schema.ManifestEntry | N
 def write_bronze(lake: Lakehouse, frame: pl.DataFrame, month: dt.date) -> None:
     """Replace exactly one month's partition of bronze.
 
-    The predicate is the whole point: without it ``mode="overwrite"`` replaces the
-    ENTIRE table, and re-running one month silently deletes all the others. Delta also
-    rejects the write if any row falls outside the predicate.
-
     Args:
         lake (Lakehouse): Storage locations for the current mode.
         frame (pl.DataFrame): Parsed rows of one month.
         month (dt.date): First day of the month the rows belong to.
     """
-    uri = bronze_uri(lake)
-    options: dict[str, Any] = {"partition_by": [schema.BRONZE_PARTITION]}
-    if _is_delta_table(lake, uri):
-        options["predicate"] = f"{schema.BRONZE_PARTITION} = '{month.isoformat()}'"
-    frame.write_delta(
-        uri, mode="overwrite", storage_options=lake.storage_options, delta_write_options=options
-    )
+    delta.overwrite_partition(lake, bronze_uri(lake), frame, schema.BRONZE_PARTITION, month)
 
 
 def record_version(lake: Lakehouse, entry: dict[str, Any]) -> None:
@@ -207,22 +179,8 @@ def record_version(lake: Lakehouse, entry: dict[str, Any]) -> None:
         lake (Lakehouse): Storage locations for the current mode.
         entry (dict[str, Any]): Row built by ``domain.manifest_entry``.
     """
-    uri = manifest_uri(lake)
     frame = pl.DataFrame([entry], schema=schema.MANIFEST_SCHEMA)
-    if not _is_delta_table(lake, uri):
-        frame.write_delta(uri, mode="error", storage_options=lake.storage_options)
-        return
-    (
-        frame.write_delta(
-            uri,
-            mode="merge",
-            storage_options=lake.storage_options,
-            delta_merge_options=_MERGE_OPTIONS,
-        )
-        .when_matched_update(updates={c: f"s.{c}" for c in _REFRESHED_ON_REPUBLICATION})
-        .when_not_matched_insert_all()
-        .execute()
-    )
+    delta.upsert(lake, manifest_uri(lake), frame, schema.MANIFEST_KEY, _REFRESHED_ON_REPUBLICATION)
 
 
 def refresh_version(
@@ -254,13 +212,6 @@ def refresh_version(
         ],
         schema={column: schema.MANIFEST_SCHEMA[column] for column in columns},
     )
-    (
-        frame.write_delta(
-            manifest_uri(lake),
-            mode="merge",
-            storage_options=lake.storage_options,
-            delta_merge_options=_MERGE_OPTIONS,
-        )
-        .when_matched_update(updates={c: f"s.{c}" for c in _REFRESHED_ON_REPUBLICATION})
-        .execute()
+    delta.update_existing(
+        lake, manifest_uri(lake), frame, schema.MANIFEST_KEY, _REFRESHED_ON_REPUBLICATION
     )

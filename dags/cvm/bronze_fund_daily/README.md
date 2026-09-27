@@ -9,8 +9,8 @@ zip per month. This DAG keeps a faithful, typed copy of those files in bronze �
 re-ingests a month when its **content** actually changed.
 
 **Scope of this DAG today:** monthly files (2021-01 onwards), bronze only, in both runtime
-modes. Silver (its own DAG), the downstream Asset and the 2000–2020 yearly files (`HIST/`)
-are later pieces.
+modes. Silver is its own DAG ([`silver_cvm_fund_daily`](../silver_fund_daily/README.md)),
+triggered by this DAG's Asset; the 2000–2020 yearly files (`HIST/`) are a later piece.
 
 ## Local and cloud mode
 
@@ -42,6 +42,9 @@ plan_months ──► ingest_month.expand(target)          one mapped instance p
                  ├─ parse: layout v1/v2, every value format-checked, then typed
                  ├─ bronze: overwrite ONLY that month's partition
                  └─ manifest: MERGE on (reference_month, sha256)
+                                   │
+publish ◄──────────────────────────┘  Asset bronze/cvm/fund_daily, extra={"months": [...]}
+                                      skipped when no month was written → no event
 ```
 
 ## Schedule — and the weekend delay, on purpose
@@ -171,9 +174,10 @@ counts the offenders per version, and silver enforces the grain.
 
 ## Consumers
 
-None yet. Next piece: the `bronze/cvm/fund_daily` Asset (carrying the months that
-changed) and the `silver_cvm_fund_daily` DAG it schedules — one DAG per layer, so this DAG
-never writes silver. Design in [docs/ROADMAP.md](../../../docs/ROADMAP.md).
+[`silver_cvm_fund_daily`](../silver_fund_daily/README.md), scheduled on the Asset
+`bronze/cvm/fund_daily` ([`cvm/assets.py`](../assets.py)). The `publish` task emits it
+with the months written; when every month was skipped, `publish` is skipped too
+(trigger rule `none_failed_min_one_success`) and silver does not run for nothing.
 
 ## Pending
 

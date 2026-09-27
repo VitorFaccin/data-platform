@@ -136,8 +136,12 @@ contain is in [docs/CVM_DATA.md](docs/CVM_DATA.md).
 
 ```
 ├── dags/
-│   └── .airflowignore            # keeps the processor off core/, adapters, READMEs
-├── include/                      # shared, business-agnostic helpers (admission rules inside)
+│   ├── .airflowignore            # keeps the processor off core/, adapters, assets, READMEs
+│   └── cvm/
+│       ├── assets.py             # the Assets the domain's DAGs exchange, declared once
+│       ├── bronze_fund_daily/    # CVM daily fund reports → bronze (change detection)
+│       └── silver_fund_daily/    # bronze → silver (conformed, grain enforced), Asset-triggered
+├── include/                      # runtime.py (local/cloud) · delta.py (write shapes)
 ├── plugins/
 │   └── alerting/                 # GoogleChatNotifier — failure alerts, one thread per run
 ├── secrets/                      # local credentials, gitignored (service-account key)

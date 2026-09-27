@@ -59,7 +59,13 @@ same DAGs to GCS + Secret Manager declared in `infra/` (Terraform, not yet appli
   in compose, no Databricks.
 - **`.airflowignore` is glob-syntax** (set explicitly in compose) and must list any new
   non-DAG module pattern.
-- Cross-DAG dependencies use **Assets**, not cron offsets and not sensors.
+- Cross-DAG dependencies use **Assets**, not cron offsets and not sensors. Each domain
+  declares its Assets once in `dags/<domain>/assets.py`; an Asset's name is its table's
+  path (`bronze/cvm/fund_daily`). Producers emit on a final `publish` task with
+  `trigger_rule="none_failed_min_one_success"` and the changed partitions in `extra`, so
+  no change means no event and no downstream run.
+- Delta writes go through `include/delta.py` (partition overwrite or `upsert`); never
+  call `write_delta` directly from a DAG.
 - **Every task alerts on failure**: each DAG sets
   `default_args={"on_failure_callback": GoogleChatNotifier()}` (`from
   alerting.google_chat import GoogleChatNotifier`). The integrity gate enforces it.

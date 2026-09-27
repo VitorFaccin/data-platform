@@ -1,7 +1,9 @@
 # Keeps the DAG processor away from files that are code, not DAG definitions.
-# Every DAG folder holds its own core/ (pure logic) and adapters.py (I/O) — neither
-# defines a DAG, so parsing them every ~30s would be pure waste.
+# Every DAG folder holds its own core/ (pure logic) and adapters.py (I/O), and every
+# domain an assets.py (the Assets its DAGs exchange) — none defines a DAG, so parsing
+# them every ~30s would be pure waste.
 # Syntax is glob (AIRFLOW__CORE__DAG_IGNORE_FILE_SYNTAX=glob in docker-compose.yml).
 **/core/**
 **/adapters.py
 **/README.md
+**/assets.py

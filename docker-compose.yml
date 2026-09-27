@@ -23,13 +23,17 @@ x-airflow-common: &airflow-common
     AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_ALL_ADMINS: "true"
     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
     AIRFLOW__CORE__DAG_IGNORE_FILE_SYNTAX: glob
-    DATA_PLATFORM_SINK: ${DATA_PLATFORM_SINK:-local}
+    # The single local/cloud switch — read only by include/runtime.py.
+    DATA_PLATFORM_MODE: ${DATA_PLATFORM_MODE:-local}
+    # Makes include/ importable (`from include import runtime`) in every component.
+    PYTHONPATH: /opt/airflow
     GCP_PROJECT_ID: ${GCP_PROJECT_ID:-}
     GCS_LANDING_BUCKET: ${GCS_LANDING_BUCKET:-}
     GCS_LAKEHOUSE_BUCKET: ${GCS_LAKEHOUSE_BUCKET:-}
     BQ_DATASET_GOLD: ${BQ_DATASET_GOLD:-gold}
     # Google client libraries read this path; the file only matters in gcp mode.
-    GOOGLE_APPLICATION_CREDENTIALS: /opt/airflow/secrets/${GCP_SA_KEY_FILE:-gcp-sa.json}
+    GOOGLE_APPLICATION_CREDENTIALS: >-
+      /opt/airflow/secrets/${GCP_CREDENTIALS_FILE:-gcloud/application_default_credentials.json}
     GOOGLE_CHAT_WEBHOOK_URL: ${GOOGLE_CHAT_WEBHOOK_URL:-}
     # Base of the log links inside failure alerts.
     AIRFLOW__API__BASE_URL: http://localhost:8080

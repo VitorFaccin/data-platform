@@ -23,7 +23,7 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.13"
           cache: pip
 
       - name: Install lint tooling
@@ -76,7 +76,8 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          # Same interpreter as the image (Dockerfile pins apache/airflow:3.3.1-python3.13).
+          python-version: "3.13"
           cache: pip
 
       - name: Install Airflow 3.3.1 with the official constraints
@@ -85,7 +86,7 @@ jobs:
         # set on every run and the suite goes flaky for reasons unrelated to this repo.
         env:
           CONSTRAINTS_URL: >-
-            https://raw.githubusercontent.com/apache/airflow/constraints-3.3.1/constraints-3.11.txt
+            https://raw.githubusercontent.com/apache/airflow/constraints-3.3.1/constraints-3.13.txt
         run: |
           pip install "apache-airflow==3.3.1" --constraint "$CONSTRAINTS_URL"
           pip install -r tests/requirements.txt

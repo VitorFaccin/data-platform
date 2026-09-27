@@ -93,7 +93,7 @@ core of the Python-first decision below.
 | 9 | **Asset (data-aware) scheduling between DAGs** | A consumer runs when its input landed, not at a cron offset that breaks the day ingestion is 20 minutes late. Caveat stated where it matters: an Asset event signals producer *success*, not data *quality*; quality gates remain tasks. |
 | 10 | **No top-level code; heavy imports inside tasks** | The dag-processor re-parses every DAG file continuously. Module-level polars/deltalake/google imports would tax every parse cycle; inside the task they cost one run. |
 | 11 | **LocalExecutor compose, not the official Celery stack** | A single-node platform gains nothing from Redis + distributed workers locally. Production would move heavy tasks off the worker (KubernetesPodOperator or Cloud Run Jobs) — the task code does not change, only where it runs. |
-| 12 | **Dependencies are baked into the image at build time** | Compose runs `FROM apache/airflow:3.3.1` + `pip install -r requirements.txt` ([`Dockerfile`](Dockerfile)) — the shape a production image has. `_PIP_ADDITIONAL_REQUIREMENTS` was rejected: it re-resolves the tree on every container start — slow, and it drifts from the pin. |
+| 12 | **Dependencies are baked into the image at build time** | Compose runs `FROM apache/airflow:3.3.1-python3.13` + `pip install -r requirements.txt` ([`Dockerfile`](Dockerfile)) — the shape a production image has. `_PIP_ADDITIONAL_REQUIREMENTS` was rejected: it re-resolves the tree on every container start — slow, and it drifts from the pin. |
 
 ### Deliberately not used (with reasons)
 
@@ -196,7 +196,7 @@ Tiers, each answering a different question:
 | Job | Checks |
 |---|---|
 | **lint** (no Airflow, <1 min) | `ruff` · `yamllint` · `terraform fmt`/`validate` (offline) · no private keys in tracked files · line endings are LF |
-| **test** | Airflow 3.3.1 installed with the **official constraints file**, DagBag integrity, per-DAG suites |
+| **test** | Airflow 3.3.1 on Python 3.13 (the image's interpreter) installed with the **official constraints file**, DagBag integrity, per-DAG suites |
 | **image** | `docker build` of the exact image compose runs — the one failure pip-on-a-host can't reproduce is a requirements pin conflicting with the image's frozen set |
 
 The constraints install deserves the note: without it, pip resolves a slightly different

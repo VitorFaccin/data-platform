@@ -1,0 +1,6 @@
+# Copy to terraform.tfvars (gitignored) and fill in. NEVER commit the real file:
+# tfvars carry account identifiers and, in careless hands, secrets.
+project_id         = "your-project-id"
+region             = "southamerica-east1"
+billing_account_id = "XXXXXX-XXXXXX-XXXXXX"
+budget_amount_brl  = 20

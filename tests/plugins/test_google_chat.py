@@ -8,14 +8,21 @@ from types import SimpleNamespace
 
 import pytest
 
-pytest.importorskip("airflow", reason="the notifier subclasses airflow.sdk.BaseNotifier")
-
-from alerting import google_chat  # noqa: E402 - must follow the importorskip guard
+from alerting import google_chat
 
 WEBHOOK = "https://chat.googleapis.com/v1/spaces/AAA/messages?key=k&token=t"
 
 
 def _context(map_index: int = -1, exception: Exception | None = None) -> dict:
+    """Build a minimal failure-callback context with a fake task instance.
+
+    Args:
+        map_index (int): Map index of the failed instance; -1 when not mapped.
+        exception (Exception | None): The error the task raised.
+
+    Returns:
+        dict: Context with ``ti`` and ``exception``, as the callback receives it.
+    """
     ti = SimpleNamespace(
         dag_id="cvm_informe_diario",
         task_id="ingest_month",

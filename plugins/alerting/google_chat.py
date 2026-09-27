@@ -25,8 +25,6 @@ from typing import Any
 from airflow.sdk import BaseNotifier
 
 WEBHOOK_ENV_VAR = "GOOGLE_CHAT_WEBHOOK_URL"
-
-# Enough to read the error in the chat; the full traceback is one click away in the log.
 _MAX_ERROR_CHARS = 1_000
 _TIMEOUT_SECONDS = 10
 
@@ -34,11 +32,14 @@ _TIMEOUT_SECONDS = 10
 def build_failure_message(context: dict[str, Any]) -> dict[str, str]:
     """Render the chat message for one failed task instance.
 
+    The error is truncated: enough to read it in the chat, with the full traceback one
+    click away in the linked log.
+
     Args:
-        context: The Airflow context handed to ``on_failure_callback``.
+        context (dict[str, Any]): The Airflow context handed to ``on_failure_callback``.
 
     Returns:
-        A Google Chat message payload (``{"text": ...}``).
+        dict[str, str]: A Google Chat message payload (``{"text": ...}``).
     """
     ti = context["ti"]
     error = context.get("exception")
@@ -63,11 +64,11 @@ def threaded_webhook_url(webhook_url: str, thread_key: str) -> str:
     not twelve top-level messages burying everything else in the space.
 
     Args:
-        webhook_url: The incoming-webhook URL as issued by Google Chat.
-        thread_key: Any stable string identifying the conversation (the DAG run).
+        webhook_url (str): The incoming-webhook URL as issued by Google Chat.
+        thread_key (str): Any stable string identifying the conversation (the DAG run).
 
     Returns:
-        The same URL with ``threadKey`` and ``messageReplyOption`` added.
+        str: The same URL with ``threadKey`` and ``messageReplyOption`` added.
     """
     parts = urllib.parse.urlsplit(webhook_url)
     query = urllib.parse.parse_qsl(parts.query)
@@ -82,10 +83,12 @@ class GoogleChatNotifier(BaseNotifier):
     """Post a task failure to the Google Chat space behind ``GOOGLE_CHAT_WEBHOOK_URL``."""
 
     def notify(self, context: dict[str, Any]) -> None:
-        """Send the alert; never raise (see module docstring).
+        """Send the alert and never raise (see the module docstring).
+
+        A failed call is logged without the URL, which embeds the webhook key and token.
 
         Args:
-            context: The Airflow context handed to ``on_failure_callback``.
+            context (dict[str, Any]): The Airflow context handed to ``on_failure_callback``.
         """
         webhook_url = os.environ.get(WEBHOOK_ENV_VAR)
         if not webhook_url:
@@ -103,5 +106,4 @@ class GoogleChatNotifier(BaseNotifier):
             with urllib.request.urlopen(request, timeout=_TIMEOUT_SECONDS):
                 pass
         except Exception:
-            # The webhook URL carries a key and token; log the failure, never the URL.
             self.log.exception("Google Chat alert failed for %s.%s", ti.dag_id, ti.task_id)

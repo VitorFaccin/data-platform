@@ -36,9 +36,11 @@ tables in the `warehouse` Docker volume); `gcp` routes the same DAGs to GCS + Bi
   write twice and asserts nothing changed.
 - **Contracts are DataFrame schemas** (Polars dtypes + business key) in `core/schema.py`.
   Pydantic only for small typed inputs (params, API envelopes), never per row.
-- **No top-level code in DAG files.** Heavy imports (`polars`, `deltalake`, google
-  clients) go inside task functions; the processor re-parses continuously.
-- **Unexpected input format RAISES** (`UnexpectedLayout`) — never a permissive cast.
+- **Imports at the top of every module** (PEP 8, enforced by ruff `PLC0415`), never
+  inside functions. No top-level *work* in DAG files (I/O, `Variable.get`, computation):
+  the processor re-parses continuously. Measured cost of the imports: ~0.1 s per parse.
+- **Task callables are module-level functions**; the `@dag` function only wires them.
+- **Unexpected input format RAISES** (`UnexpectedLayoutError`) — never a permissive cast.
 - **Imports are fully qualified from the dags root** (`from cvm.<dag_name>.core import
   domain`) so two DAG folders can both have a `core/` without colliding in `sys.modules`.
 - **Terraform owns containers (buckets, datasets, IAM, budget); the pipeline owns
@@ -58,8 +60,12 @@ tables in the `warehouse` Docker volume); `gcp` routes the same DAGs to GCS + Bi
 
 ## Conventions
 
-- Python: ruff-enforced (see `ruff.toml` for the why of each rule), Google docstrings,
-  typed signatures, 100 columns.
+- Python: ruff-enforced (see `ruff.toml` for the why of each rule), typed signatures,
+  100 columns. Every function has a Google docstring with typed `Args` (`name (type):
+  ...`) and `Returns` (`type: ...`), one line each; the *why* goes in the docstring.
+  Inline comments are rare — only for a reason the docstring cannot carry.
+- Constants that define a public source (URLs, layouts) live in code; environment
+  config in env vars; credentials never in code — see ARCHITECTURE "Configuration".
 - Tests mirror `dags/` by domain: `tests/<domain>/<dag_name>/test_<dag_name>.py`, with
   fixtures next to the test. Fixtures never contain real personal data.
 - Comments explain WHY, not what. A future reader must find the reasoning, not narration.

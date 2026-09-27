@@ -10,7 +10,9 @@ target-version = "py313"  # the image's interpreter (Dockerfile)
 # E/W  pycodestyle (PEP 8)      F   pyflakes (real bugs)
 # I    import order             UP  pyupgrade (modern syntax)
 # ANN  missing type annotations D   docstring presence/format
-select = ["E", "W", "F", "I", "UP", "ANN", "D"]
+# PLC0415  import inside a function: imports live at the top of the module (PEP 8);
+#          docs/ARCHITECTURE.md "Module conventions" has the measured parse-time cost
+select = ["E", "W", "F", "I", "UP", "ANN", "D", "PLC0415"]
 ignore = [
     "D203",    # conflicts with D211 (blank line before class docstring)
     "D213",    # conflicts with D212 (multi-line summary on the first line)

@@ -57,9 +57,11 @@ jobs:
 
       - name: Line endings are LF
         # A CRLF .sh breaks a Linux container entrypoint with `env: 'bash\r'`, a message
-        # that names neither the file nor the cause. Cheaper to assert here.
+        # that names neither the file nor the cause. Cheaper to assert here. Files marked
+        # binary in .gitattributes (attr/-text) are exempt: test fixtures keep the source's
+        # CRLF byte for byte on purpose.
         run: |
-          if git ls-files --eol | grep -E 'w/crlf|w/mixed'; then
+          if git ls-files --eol | grep -v 'attr/-text' | grep -E 'w/crlf|w/mixed'; then
             echo "::error::CRLF found in the working tree — see .gitattributes"
             exit 1
           fi

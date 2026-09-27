@@ -1,0 +1,22 @@
+# House Python style, codified so the standard is checkable rather than remembered.
+# Same conventions as github.com/VitorFaccin/semantic-layer — one house style across repos.
+line-length = 100
+target-version = "py311"
+
+[lint]
+# E/W  pycodestyle (PEP 8)      F   pyflakes (real bugs)
+# I    import order             UP  pyupgrade (modern syntax)
+# ANN  missing type annotations D   docstring presence/format
+select = ["E", "W", "F", "I", "UP", "ANN", "D"]
+ignore = [
+    "D203",    # conflicts with D211 (blank line before class docstring)
+    "D213",    # conflicts with D212 (multi-line summary on the first line)
+    "ANN401",  # allow typing.Any where a payload is genuinely untyped JSON
+]
+
+[lint.per-file-ignores]
+# Test modules document intent in the function name and the docstring body.
+"tests/**" = ["D103", "D100"]
+
+[lint.pydocstyle]
+convention = "google"

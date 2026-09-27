@@ -171,6 +171,13 @@ counts the offenders per version, and silver enforces the grain.
 
 ## Consumers
 
-None yet. Next piece: the `bronze/cvm/fund_daily` Asset and the `silver_cvm_fund_daily`
-DAG it schedules (`MERGE` on the grain) — one DAG per layer, so this DAG never writes
-silver.
+None yet. Next piece: the `bronze/cvm/fund_daily` Asset (carrying the months that
+changed) and the `silver_cvm_fund_daily` DAG it schedules — one DAG per layer, so this DAG
+never writes silver. Design in [docs/ROADMAP.md](../../../docs/ROADMAP.md).
+
+## Pending
+
+- **Table maintenance.** Every republication leaves the previous version's files on disk
+  (time travel), and every manifest `MERGE` adds a small file. Nothing compacts or
+  deletes them yet; the weekly `maintenance_lakehouse` DAG (OPTIMIZE + VACUUM) is planned
+  in the roadmap.
